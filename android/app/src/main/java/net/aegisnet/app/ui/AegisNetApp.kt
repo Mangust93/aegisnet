@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.aegisnet.app.vpn.VpnState
 
 @Composable
 fun AegisNetApp() {
@@ -45,6 +46,8 @@ fun AegisNetApp() {
 
 @Composable
 private fun ConnectionShell(modifier: Modifier = Modifier) {
+    val vpnState = VpnState.Idle
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.SpaceBetween,
@@ -67,7 +70,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            StatusPill()
+            StatusPill(vpnState = vpnState)
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -96,7 +99,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
         ) {
             PlaceholderCard(
                 title = "Status",
-                detail = "Disconnected",
+                detail = vpnState.label,
             )
             PlaceholderCard(
                 title = "Runtime",
@@ -111,7 +114,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun StatusPill() {
+private fun StatusPill(vpnState: VpnState) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -124,7 +127,7 @@ private fun StatusPill() {
             content = {},
         )
         Text(
-            text = "Disconnected",
+            text = vpnState.label,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onBackground,
