@@ -26,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import net.aegisnet.app.runtime.RuntimeState
+import net.aegisnet.app.runtime.label
 import net.aegisnet.app.vpn.VpnState
 
 @Composable
@@ -47,6 +49,7 @@ fun AegisNetApp() {
 @Composable
 private fun ConnectionShell(modifier: Modifier = Modifier) {
     val vpnState = VpnState.Idle
+    val runtimeState = RuntimeState.Stopped
 
     Column(
         modifier = modifier,
@@ -103,7 +106,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
             )
             PlaceholderCard(
                 title = "Runtime",
-                detail = "Not started",
+                detail = "Dummy runtime: ${runtimeState.label}",
             )
             PlaceholderCard(
                 title = "Diagnostics",
