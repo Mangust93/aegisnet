@@ -7,6 +7,8 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import net.aegisnet.app.diagnostics.DiagnosticLevel
+import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.ui.AegisNetApp
 import net.aegisnet.app.vpn.AegisVpnController
 import net.aegisnet.app.vpn.AegisVpnService
@@ -16,6 +18,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Info,
+                source = DiagnosticSource.System,
+                message = "VPN consent accepted",
+            )
             startVpnServiceAfterConsent()
         } else {
             AegisVpnController.fail("VPN consent denied")
@@ -32,6 +39,7 @@ class MainActivity : ComponentActivity() {
                 diagnostics = AegisVpnController.diagnostics,
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,
+                onClearDiagnostics = AegisVpnController::clearDiagnostics,
             )
         }
     }
@@ -46,6 +54,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.System,
+            message = "VPN consent already granted",
+        )
         startVpnServiceAfterConsent()
     }
 

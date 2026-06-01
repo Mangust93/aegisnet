@@ -62,6 +62,12 @@ object AegisVpnController {
         )
     }
 
+    @Synchronized
+    fun clearDiagnostics() {
+        diagnosticsStore.clear()
+        mutableDiagnostics.value = diagnosticsStore.snapshot()
+    }
+
     private fun apply(result: VpnTransitionResult): VpnTransitionResult {
         mutableState.value = result.currentState
         addEvent(result.diagnostic)

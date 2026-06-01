@@ -9,12 +9,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,6 +33,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import net.aegisnet.app.diagnostics.DiagnosticEvent
@@ -41,6 +49,7 @@ fun AegisNetApp(
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onClearDiagnostics: () -> Unit,
 ) {
     MaterialTheme {
         Surface(
@@ -52,6 +61,7 @@ fun AegisNetApp(
                 diagnostics = diagnostics,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
+                onClearDiagnostics = onClearDiagnostics,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
@@ -66,16 +76,16 @@ private fun ConnectionShell(
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onClearDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val currentVpnState by vpnState.collectAsState()
     val currentDiagnostics by diagnostics.collectAsState()
     val runtimeState = RuntimeState.Stopped
     val isConnected = currentVpnState.isActive
-    val latestDiagnostic = currentDiagnostics.lastOrNull()?.message ?: "No events"
 
     Column(
-        modifier = modifier,
+        modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column {
@@ -131,9 +141,9 @@ private fun ConnectionShell(
                 title = "Runtime",
                 detail = "Dummy runtime: ${runtimeState.label}",
             )
-            PlaceholderCard(
-                title = "Diagnostics",
-                detail = latestDiagnostic,
+            DiagnosticsHistory(
+                events = currentDiagnostics,
+                onClear = onClearDiagnostics,
             )
         }
     }
@@ -195,6 +205,101 @@ private fun PlaceholderCard(
     }
 }
 
+@Composable
+private fun DiagnosticsHistory(
+    events: List<DiagnosticEvent>,
+    onClear: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Diagnostics",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                TextButton(
+                    onClick = onClear,
+                    enabled = events.isNotEmpty(),
+                ) {
+                    Text(text = "Clear")
+                }
+            }
+
+            if (events.isEmpty()) {
+                Text(
+                    text = "No events",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(
+                        items = events.asReversed(),
+                    ) { event ->
+                        DiagnosticEventRow(event = event)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticEventRow(event: DiagnosticEvent) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "${event.source} / ${event.level}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = event.timestampLabel(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
+            )
+        }
+        Text(
+            text = event.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+        )
+    }
+}
+
+private fun DiagnosticEvent.timestampLabel(): String {
+    return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(timestampMillis))
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun AegisNetAppPreview() {
@@ -203,5 +308,6 @@ private fun AegisNetAppPreview() {
         diagnostics = MutableStateFlow(emptyList()),
         onConnect = {},
         onDisconnect = {},
+        onClearDiagnostics = {},
     )
 }
