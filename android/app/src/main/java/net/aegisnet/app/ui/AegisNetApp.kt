@@ -19,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,18 +28,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.runtime.label
 import net.aegisnet.app.vpn.VpnState
 
 @Composable
-fun AegisNetApp() {
+fun AegisNetApp(
+    vpnState: StateFlow<VpnState>,
+    diagnostics: StateFlow<List<DiagnosticEvent>>,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+) {
     MaterialTheme {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
             ConnectionShell(
+                vpnState = vpnState,
+                diagnostics = diagnostics,
+                onConnect = onConnect,
+                onDisconnect = onDisconnect,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
@@ -47,9 +61,18 @@ fun AegisNetApp() {
 }
 
 @Composable
-private fun ConnectionShell(modifier: Modifier = Modifier) {
-    val vpnState = VpnState.Idle
+private fun ConnectionShell(
+    vpnState: StateFlow<VpnState>,
+    diagnostics: StateFlow<List<DiagnosticEvent>>,
+    onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val currentVpnState by vpnState.collectAsState()
+    val currentDiagnostics by diagnostics.collectAsState()
     val runtimeState = RuntimeState.Stopped
+    val isConnected = currentVpnState.isActive
+    val latestDiagnostic = currentDiagnostics.lastOrNull()?.message ?: "No events"
 
     Column(
         modifier = modifier,
@@ -73,12 +96,12 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            StatusPill(vpnState = vpnState)
+            StatusPill(vpnState = currentVpnState)
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-                onClick = {},
+                onClick = if (isConnected) onDisconnect else onConnect,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp),
@@ -89,7 +112,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
                 ),
             ) {
                 Text(
-                    text = "Connect",
+                    text = if (isConnected) "Disconnect" else "Connect",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -102,7 +125,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
         ) {
             PlaceholderCard(
                 title = "Status",
-                detail = vpnState.label,
+                detail = currentVpnState.label,
             )
             PlaceholderCard(
                 title = "Runtime",
@@ -110,7 +133,7 @@ private fun ConnectionShell(modifier: Modifier = Modifier) {
             )
             PlaceholderCard(
                 title = "Diagnostics",
-                detail = "No events",
+                detail = latestDiagnostic,
             )
         }
     }
@@ -175,5 +198,10 @@ private fun PlaceholderCard(
 @Preview(showBackground = true)
 @Composable
 private fun AegisNetAppPreview() {
-    AegisNetApp()
+    AegisNetApp(
+        vpnState = MutableStateFlow(VpnState.Idle),
+        diagnostics = MutableStateFlow(emptyList()),
+        onConnect = {},
+        onDisconnect = {},
+    )
 }
