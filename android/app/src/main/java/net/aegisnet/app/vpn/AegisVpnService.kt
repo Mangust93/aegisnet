@@ -7,14 +7,41 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import net.aegisnet.app.MainActivity
 import net.aegisnet.app.R
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
+import net.aegisnet.app.runtime.DummyRuntime
+import net.aegisnet.app.runtime.NetworkRuntime
+import net.aegisnet.app.runtime.RuntimeConfig
+import net.aegisnet.app.runtime.RuntimeState
 
 class AegisVpnService : VpnService() {
+    private val runtime: NetworkRuntime = DummyRuntime()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var vpnInterface: ParcelFileDescriptor? = null
     private var foregroundActive = false
+    private var runtimeStartJob: Job? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        runtime.state
+            .onEach(AegisVpnController::updateRuntimeState)
+            .launchIn(serviceScope)
+        runtime.diagnostics
+            .onEach(AegisVpnController::addDiagnostic)
+            .launchIn(serviceScope)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -31,6 +58,7 @@ class AegisVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        stopRuntimeBlocking()
         closeVpnInterface()
         stopForegroundNotification()
         AegisVpnController.revoked()
@@ -40,13 +68,15 @@ class AegisVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        if (vpnInterface != null) {
+        if (vpnInterface != null || runtime.state.value != RuntimeState.Stopped) {
+            stopRuntimeBlocking()
             closeVpnInterface()
             stopForegroundNotification()
             AegisVpnController.disconnect()
             AegisVpnController.stopped()
         }
         stopForegroundNotification()
+        serviceScope.cancel()
         super.onDestroy()
     }
 
@@ -75,8 +105,7 @@ class AegisVpnService : VpnService() {
                 return
             }
 
-            AegisVpnController.tunnelEstablished()
-            updateForegroundNotification(VpnState.Running)
+            startDummyRuntime()
         } catch (error: RuntimeException) {
             failAndStop("VPN interface error: ${error.message ?: error.javaClass.simpleName}")
         }
@@ -85,6 +114,7 @@ class AegisVpnService : VpnService() {
     private fun stopVpn() {
         AegisVpnController.disconnect()
         updateForegroundNotification(VpnState.Stopping)
+        stopRuntimeBlocking()
         closeVpnInterface()
         stopForegroundNotification()
         AegisVpnController.stopped()
@@ -92,11 +122,48 @@ class AegisVpnService : VpnService() {
     }
 
     private fun failAndStop(message: String) {
+        stopRuntimeBlocking()
         closeVpnInterface()
         stopForegroundNotification()
         AegisVpnController.fail(message)
         AegisVpnController.cleanupError()
         stopSelf()
+    }
+
+    private fun startDummyRuntime() {
+        val currentInterface = vpnInterface ?: run {
+            failAndStop("VPN interface was closed before runtime start")
+            return
+        }
+        val sessionId = "aegis-${System.currentTimeMillis()}"
+        runtimeStartJob?.cancel()
+        runtimeStartJob = serviceScope.launch {
+            try {
+                runtime.start(
+                    RuntimeConfig(
+                        sessionId = sessionId,
+                        tunFd = currentInterface.fd,
+                    ),
+                )
+                if (vpnInterface != null && runtime.state.value == RuntimeState.Running) {
+                    AegisVpnController.tunnelEstablished()
+                    updateForegroundNotification(VpnState.Running)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: RuntimeException) {
+                failAndStop("Dummy runtime error: ${error.message ?: error.javaClass.simpleName}")
+            }
+        }
+    }
+
+    private fun stopRuntimeBlocking() {
+        runtimeStartJob?.cancel()
+        runtimeStartJob = null
+        runBlocking {
+            runtime.stop()
+        }
+        AegisVpnController.updateRuntimeState(runtime.state.value)
     }
 
     private fun closeVpnInterface() {

@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             AegisNetApp(
                 vpnState = AegisVpnController.state,
+                runtimeState = AegisVpnController.runtimeState,
                 diagnostics = AegisVpnController.diagnostics,
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,

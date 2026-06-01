@@ -46,6 +46,7 @@ import net.aegisnet.app.vpn.VpnState
 @Composable
 fun AegisNetApp(
     vpnState: StateFlow<VpnState>,
+    runtimeState: StateFlow<RuntimeState>,
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -58,6 +59,7 @@ fun AegisNetApp(
         ) {
             ConnectionShell(
                 vpnState = vpnState,
+                runtimeState = runtimeState,
                 diagnostics = diagnostics,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
@@ -73,6 +75,7 @@ fun AegisNetApp(
 @Composable
 private fun ConnectionShell(
     vpnState: StateFlow<VpnState>,
+    runtimeState: StateFlow<RuntimeState>,
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -80,8 +83,8 @@ private fun ConnectionShell(
     modifier: Modifier = Modifier,
 ) {
     val currentVpnState by vpnState.collectAsState()
+    val currentRuntimeState by runtimeState.collectAsState()
     val currentDiagnostics by diagnostics.collectAsState()
-    val runtimeState = RuntimeState.Stopped
     val isConnected = currentVpnState.isActive
 
     Column(
@@ -139,7 +142,7 @@ private fun ConnectionShell(
             )
             PlaceholderCard(
                 title = "Runtime",
-                detail = "Dummy runtime: ${runtimeState.label}",
+                detail = "Dummy runtime: ${currentRuntimeState.label}",
             )
             DiagnosticsHistory(
                 events = currentDiagnostics,
@@ -305,6 +308,7 @@ private fun DiagnosticEvent.timestampLabel(): String {
 private fun AegisNetAppPreview() {
     AegisNetApp(
         vpnState = MutableStateFlow(VpnState.Idle),
+        runtimeState = MutableStateFlow(RuntimeState.Stopped),
         diagnostics = MutableStateFlow(emptyList()),
         onConnect = {},
         onDisconnect = {},

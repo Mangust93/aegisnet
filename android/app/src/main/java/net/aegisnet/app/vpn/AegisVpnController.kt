@@ -7,14 +7,17 @@ import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.diagnostics.DiagnosticsStore
+import net.aegisnet.app.runtime.RuntimeState
 
 object AegisVpnController {
     private val machine = VpnStateMachine()
     private val diagnosticsStore = DiagnosticsStore()
     private val mutableState = MutableStateFlow(machine.state)
+    private val mutableRuntimeState = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private val mutableDiagnostics = MutableStateFlow<List<DiagnosticEvent>>(emptyList())
 
     val state: StateFlow<VpnState> = mutableState.asStateFlow()
+    val runtimeState: StateFlow<RuntimeState> = mutableRuntimeState.asStateFlow()
     val diagnostics: StateFlow<List<DiagnosticEvent>> = mutableDiagnostics.asStateFlow()
 
     @Synchronized
@@ -60,6 +63,16 @@ object AegisVpnController {
                 message = message,
             ),
         )
+    }
+
+    @Synchronized
+    fun addDiagnostic(event: DiagnosticEvent) {
+        addEvent(event)
+    }
+
+    @Synchronized
+    fun updateRuntimeState(state: RuntimeState) {
+        mutableRuntimeState.value = state
     }
 
     @Synchronized

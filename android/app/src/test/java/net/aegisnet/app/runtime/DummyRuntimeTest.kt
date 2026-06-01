@@ -48,4 +48,21 @@ class DummyRuntimeTest {
             diagnostics.map { it.message },
         )
     }
+
+    @Test
+    fun startAcceptsTunFdWithoutChangingDummyBehavior() = runBlocking {
+        val runtime = DummyRuntime(startupDelayMillis = 1L)
+
+        runtime.start(RuntimeConfig(sessionId = "fd-session", tunFd = 42))
+        val diagnostics = runtime.diagnostics.take(2).toList()
+
+        assertEquals(RuntimeState.Running, runtime.state.value)
+        assertEquals(
+            listOf(
+                "Dummy runtime starting session fd-session (Stopped -> Starting)",
+                "Dummy runtime running session fd-session (Starting -> Running)",
+            ),
+            diagnostics.map { it.message },
+        )
+    }
 }
