@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
         val transition = AegisVpnController.consentPrepared()
         if (!transition.changed) return
 
-        startService(
+        startForegroundService(
             Intent(this, AegisVpnService::class.java).setAction(AegisVpnService.ACTION_START),
         )
     }
