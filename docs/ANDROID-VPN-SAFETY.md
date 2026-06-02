@@ -11,6 +11,12 @@ AegisNet must handle:
 - VPN interface fd cleanup
 - protected upstream sockets via VpnService.protect()
 
+## Stage 1 Safety Boundary
+
+Stage 1 intentionally validates Android VPN lifecycle behavior with a dummy TUN setup only.
+
+The Stage 1 implementation has no routes, no DNS configuration, no packet forwarding, no upstream sockets, and no real protocol runtime. It must not be treated as a production VPN path or as evidence that traffic tunneling, DNS safety, IPv6 safety, or leak prevention is complete.
+
 ## Per-App Routing
 
 Android VpnService supports package-level allow/disallow lists.

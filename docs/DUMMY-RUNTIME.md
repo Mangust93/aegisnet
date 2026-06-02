@@ -8,6 +8,8 @@ Dummy runtime validates the runtime abstraction without integrating real proxy c
 
 No real network runtime is allowed in Stage 1.
 
+For the completed Stage 1 Android foundation, the dummy runtime is wired into the AegisVpnService lifecycle. Starting the service starts the dummy runtime with the established TUN file descriptor, and stopping or revoking the service stops the dummy runtime during VPN cleanup.
+
 ## Runtime Interface
 
 interface NetworkRuntime {
@@ -46,5 +48,6 @@ DummyRuntime should:
 - stop cleanly
 - emit Stopping and Stopped
 - never open sockets
+- never forward packets
 - never generate protocol configs
 - never depend on sing-box/libbox
