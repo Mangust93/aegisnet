@@ -21,14 +21,26 @@ Tasks:
 - foreground service skeleton
 - diagnostics log screen
 
-## Stage 2 — VPN Correctness
+## Stage 2 — Safe Networking Experiments
+
+Status:
+Planned documentation stage.
 
 Tasks:
-- whitelist routing
-- DNS leak handling
-- IPv6 handling
-- reconnect logic
-- Android 14/15 foreground service compliance
+- VpnService.protect() experiment plan
+- controlled dummy socket protection test plan, if safe
+- route experiment planning
+- DNS handling planning
+- IPv6 handling planning
+- leak and loop safety checklist
+
+Out of scope:
+- production traffic tunneling
+- sing-box/libbox integration
+- Xray, VLESS, Reality, or Hysteria2 integration
+- packet forwarding runtime
+- Android code changes
+- dependency or Gradle changes
 
 ## Stage 3 — Protocol Profiles
 
