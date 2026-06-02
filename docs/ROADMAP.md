@@ -24,21 +24,31 @@ Tasks:
 ## Stage 2 — Safe Networking Experiments
 
 Status:
-Planned documentation stage.
+In progress documentation stage.
 
 Tasks:
-- VpnService.protect() experiment plan
+- Stage 2.1 VpnService.protect() experiment specification documented
 - controlled dummy socket protection test plan, if safe
 - route experiment planning
 - DNS handling planning
 - IPv6 handling planning
 - leak and loop safety checklist
 
+Stage 2.1 scope:
+- document protect-before-connect requirements
+- document controlled dummy socket lifecycle
+- document cleanup and diagnostics expectations
+- document device validation and rollback expectations
+- no Android code changes
+
 Out of scope:
 - production traffic tunneling
 - sing-box/libbox integration
 - Xray, VLESS, Reality, or Hysteria2 integration
 - packet forwarding runtime
+- DNS changes
+- route changes
+- real proxy runtime
 - Android code changes
 - dependency or Gradle changes
 
