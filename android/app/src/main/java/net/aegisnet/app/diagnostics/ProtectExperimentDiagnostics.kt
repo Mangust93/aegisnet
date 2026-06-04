@@ -10,6 +10,8 @@ enum class ProtectExperimentDiagnosticName(
     SocketProtectStarted("socket_protect_started"),
     SocketProtectSucceeded("socket_protect_succeeded"),
     SocketProtectFailed("socket_protect_failed"),
+    SocketConnectSkipped("socket_connect_skipped"),
+    DummySocketClosed("dummy_socket_closed"),
     ProtectExperimentFailed("protect_experiment_failed"),
     ProtectExperimentCompleted("protect_experiment_completed"),
     ProtectExperimentCleanupStarted("protect_experiment_cleanup_started"),

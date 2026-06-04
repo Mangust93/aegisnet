@@ -15,6 +15,8 @@ class ProtectExperimentDiagnosticsTest {
                 "socket_protect_started",
                 "socket_protect_succeeded",
                 "socket_protect_failed",
+                "socket_connect_skipped",
+                "dummy_socket_closed",
                 "protect_experiment_failed",
                 "protect_experiment_completed",
                 "protect_experiment_cleanup_started",
