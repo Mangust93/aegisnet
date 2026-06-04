@@ -21,10 +21,13 @@ import net.aegisnet.app.MainActivity
 import net.aegisnet.app.R
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
+import net.aegisnet.app.diagnostics.DiagnosticsStore
 import net.aegisnet.app.runtime.DummyRuntime
 import net.aegisnet.app.runtime.NetworkRuntime
 import net.aegisnet.app.runtime.RuntimeConfig
 import net.aegisnet.app.runtime.RuntimeState
+import net.aegisnet.app.vpn.experiment.DummySocketProtectExperiment
+import net.aegisnet.app.vpn.experiment.VpnServiceSocketProtector
 
 class AegisVpnService : VpnService() {
     private val runtime: NetworkRuntime = DummyRuntime()
@@ -47,6 +50,7 @@ class AegisVpnService : VpnService() {
         when (intent?.action) {
             ACTION_START -> startVpn()
             ACTION_STOP -> stopVpn()
+            ACTION_RUN_PROTECT_EXPERIMENT -> runProtectExperiment()
             else -> AegisVpnController.addDiagnostic(
                 level = DiagnosticLevel.Debug,
                 source = DiagnosticSource.Vpn,
@@ -119,6 +123,26 @@ class AegisVpnService : VpnService() {
         stopForegroundNotification()
         AegisVpnController.stopped()
         stopSelf()
+    }
+
+    private fun runProtectExperiment() {
+        if (vpnInterface == null) {
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Warning,
+                source = DiagnosticSource.Vpn,
+                message = "Protect experiment ignored because VPN interface is not open",
+            )
+            stopSelf()
+            return
+        }
+
+        val diagnosticsStore = DiagnosticsStore()
+        DummySocketProtectExperiment(
+            diagnosticsStore = diagnosticsStore,
+            socketProtector = VpnServiceSocketProtector(this),
+            vpnLifecycleStateProvider = { AegisVpnController.state.value.name },
+        ).run()
+        diagnosticsStore.snapshot().forEach(AegisVpnController::addDiagnostic)
     }
 
     private fun failAndStop(message: String) {
@@ -249,6 +273,7 @@ class AegisVpnService : VpnService() {
     companion object {
         const val ACTION_START = "net.aegisnet.app.vpn.START"
         const val ACTION_STOP = "net.aegisnet.app.vpn.STOP"
+        const val ACTION_RUN_PROTECT_EXPERIMENT = "net.aegisnet.app.vpn.RUN_PROTECT_EXPERIMENT"
 
         private const val NOTIFICATION_ID = 1001
         private const val NOTIFICATION_CHANNEL_ID = "aegis_vpn_service"

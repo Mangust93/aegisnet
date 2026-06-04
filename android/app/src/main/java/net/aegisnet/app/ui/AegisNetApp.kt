@@ -51,6 +51,7 @@ fun AegisNetApp(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
+    onRunProtectExperiment: () -> Unit,
 ) {
     MaterialTheme {
         Surface(
@@ -64,6 +65,7 @@ fun AegisNetApp(
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
                 onClearDiagnostics = onClearDiagnostics,
+                onRunProtectExperiment = onRunProtectExperiment,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
@@ -80,6 +82,7 @@ private fun ConnectionShell(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
+    onRunProtectExperiment: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val currentVpnState by vpnState.collectAsState()
@@ -146,7 +149,9 @@ private fun ConnectionShell(
             )
             DiagnosticsHistory(
                 events = currentDiagnostics,
+                protectExperimentEnabled = currentVpnState is VpnState.Running,
                 onClear = onClearDiagnostics,
+                onRunProtectExperiment = onRunProtectExperiment,
             )
         }
     }
@@ -211,7 +216,9 @@ private fun PlaceholderCard(
 @Composable
 private fun DiagnosticsHistory(
     events: List<DiagnosticEvent>,
+    protectExperimentEnabled: Boolean,
     onClear: () -> Unit,
+    onRunProtectExperiment: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -243,6 +250,15 @@ private fun DiagnosticsHistory(
                 ) {
                     Text(text = "Clear")
                 }
+            }
+
+            Button(
+                onClick = onRunProtectExperiment,
+                enabled = protectExperimentEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(text = "Run Protect Experiment")
             }
 
             if (events.isEmpty()) {
@@ -313,5 +329,6 @@ private fun AegisNetAppPreview() {
         onConnect = {},
         onDisconnect = {},
         onClearDiagnostics = {},
+        onRunProtectExperiment = {},
     )
 }

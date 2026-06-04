@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,
                 onClearDiagnostics = AegisVpnController::clearDiagnostics,
+                onRunProtectExperiment = ::runProtectExperiment,
             )
         }
     }
@@ -75,6 +76,15 @@ class MainActivity : ComponentActivity() {
     private fun disconnect() {
         startService(
             Intent(this, AegisVpnService::class.java).setAction(AegisVpnService.ACTION_STOP),
+        )
+    }
+
+    private fun runProtectExperiment() {
+        startService(
+            Intent(
+                this,
+                AegisVpnService::class.java,
+            ).setAction(AegisVpnService.ACTION_RUN_PROTECT_EXPERIMENT),
         )
     }
 }
