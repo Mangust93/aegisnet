@@ -15,10 +15,14 @@ object AegisVpnController {
     private val mutableState = MutableStateFlow(machine.state)
     private val mutableRuntimeState = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private val mutableDiagnostics = MutableStateFlow<List<DiagnosticEvent>>(emptyList())
+    private val mutableSessionStartedAtMillis = MutableStateFlow<Long?>(null)
+    private val mutableForegroundNotificationActive = MutableStateFlow(false)
 
     val state: StateFlow<VpnState> = mutableState.asStateFlow()
     val runtimeState: StateFlow<RuntimeState> = mutableRuntimeState.asStateFlow()
     val diagnostics: StateFlow<List<DiagnosticEvent>> = mutableDiagnostics.asStateFlow()
+    val sessionStartedAtMillis: StateFlow<Long?> = mutableSessionStartedAtMillis.asStateFlow()
+    val foregroundNotificationActive: StateFlow<Boolean> = mutableForegroundNotificationActive.asStateFlow()
 
     @Synchronized
     fun connect() = apply(machine.connect())
@@ -76,13 +80,35 @@ object AegisVpnController {
     }
 
     @Synchronized
+    fun updateForegroundNotificationActive(active: Boolean) {
+        mutableForegroundNotificationActive.value = active
+    }
+
+    @Synchronized
     fun clearDiagnostics() {
         diagnosticsStore.clear()
         mutableDiagnostics.value = diagnosticsStore.snapshot()
     }
 
+    @Synchronized
+    fun diagnosticsText(): String {
+        return diagnosticsStore.snapshot().joinToString(separator = "\n") { event ->
+            "${event.timestampMillis} ${event.level} ${event.source}: ${event.message}"
+        }
+    }
+
     private fun apply(result: VpnTransitionResult): VpnTransitionResult {
         mutableState.value = result.currentState
+        if (result.changed) {
+            when (result.currentState) {
+                VpnState.Running -> mutableSessionStartedAtMillis.value = System.currentTimeMillis()
+                VpnState.Idle,
+                VpnState.Revoked,
+                is VpnState.Error,
+                -> mutableSessionStartedAtMillis.value = null
+                else -> Unit
+            }
+        }
         addEvent(result.diagnostic)
         return result
     }

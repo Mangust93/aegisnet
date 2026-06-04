@@ -1,7 +1,10 @@
 package net.aegisnet.app.ui
 
+import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,13 +22,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,22 +44,29 @@ import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import net.aegisnet.app.diagnostics.DiagnosticEvent
+import net.aegisnet.app.diagnostics.ProtectExperimentDiagnosticName
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.runtime.label
+import net.aegisnet.app.runtime.name
 import net.aegisnet.app.vpn.VpnState
+import net.aegisnet.app.vpn.name
 
 @Composable
 fun AegisNetApp(
     vpnState: StateFlow<VpnState>,
     runtimeState: StateFlow<RuntimeState>,
     diagnostics: StateFlow<List<DiagnosticEvent>>,
+    sessionStartedAtMillis: StateFlow<Long?>,
+    foregroundNotificationActive: StateFlow<Boolean>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
     onRunProtectExperiment: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
 ) {
     MaterialTheme {
         Surface(
@@ -62,10 +77,13 @@ fun AegisNetApp(
                 vpnState = vpnState,
                 runtimeState = runtimeState,
                 diagnostics = diagnostics,
+                sessionStartedAtMillis = sessionStartedAtMillis,
+                foregroundNotificationActive = foregroundNotificationActive,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
                 onClearDiagnostics = onClearDiagnostics,
                 onRunProtectExperiment = onRunProtectExperiment,
+                onCopyDiagnostics = onCopyDiagnostics,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp),
@@ -79,20 +97,26 @@ private fun ConnectionShell(
     vpnState: StateFlow<VpnState>,
     runtimeState: StateFlow<RuntimeState>,
     diagnostics: StateFlow<List<DiagnosticEvent>>,
+    sessionStartedAtMillis: StateFlow<Long?>,
+    foregroundNotificationActive: StateFlow<Boolean>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
     onRunProtectExperiment: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val currentVpnState by vpnState.collectAsState()
     val currentRuntimeState by runtimeState.collectAsState()
     val currentDiagnostics by diagnostics.collectAsState()
+    val currentSessionStartedAtMillis by sessionStartedAtMillis.collectAsState()
+    val currentForegroundNotificationActive by foregroundNotificationActive.collectAsState()
     val isConnected = currentVpnState.isActive
+    val latestProtectResult = currentDiagnostics.latestProtectExperimentResult()
 
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Column {
             Text(
@@ -114,7 +138,7 @@ private fun ConnectionShell(
         ) {
             StatusPill(vpnState = currentVpnState)
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             Button(
                 onClick = if (isConnected) onDisconnect else onConnect,
@@ -135,25 +159,26 @@ private fun ConnectionShell(
             }
         }
 
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            PlaceholderCard(
-                title = "Status",
-                detail = currentVpnState.label,
-            )
-            PlaceholderCard(
-                title = "Runtime",
-                detail = "Dummy runtime: ${currentRuntimeState.label}",
-            )
-            DiagnosticsHistory(
-                events = currentDiagnostics,
-                protectExperimentEnabled = currentVpnState is VpnState.Running,
-                onClear = onClearDiagnostics,
-                onRunProtectExperiment = onRunProtectExperiment,
-            )
-        }
+        DeviceSessionInfo(
+            vpnState = currentVpnState,
+            runtimeState = currentRuntimeState,
+            sessionStartedAtMillis = currentSessionStartedAtMillis,
+            foregroundNotificationActive = currentForegroundNotificationActive,
+        )
+
+        DiagnosticsLab(
+            vpnState = currentVpnState,
+            runtimeState = currentRuntimeState,
+            latestProtectResult = latestProtectResult,
+            protectExperimentEnabled = currentVpnState is VpnState.Running,
+            onRunProtectExperiment = onRunProtectExperiment,
+        )
+
+        DiagnosticsHistory(
+            events = currentDiagnostics,
+            onClear = onClearDiagnostics,
+            onCopyDiagnostics = onCopyDiagnostics,
+        )
     }
 }
 
@@ -167,7 +192,7 @@ private fun StatusPill(vpnState: VpnState) {
             modifier = Modifier
                 .size(12.dp)
                 .clip(CircleShape),
-            color = Color(0xFF8A94A6),
+            color = if (vpnState is VpnState.Running) Color(0xFF15803D) else Color(0xFF8A94A6),
             content = {},
         )
         Text(
@@ -180,45 +205,120 @@ private fun StatusPill(vpnState: VpnState) {
 }
 
 @Composable
-private fun PlaceholderCard(
-    title: String,
-    detail: String,
+private fun DeviceSessionInfo(
+    vpnState: VpnState,
+    runtimeState: RuntimeState,
+    sessionStartedAtMillis: Long?,
+    foregroundNotificationActive: Boolean,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        ),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+    SectionCard(title = "Device / Session") {
+        InfoRow(title = "VPN state", value = vpnState.name)
+        InfoRow(title = "Runtime state", value = runtimeState.name)
+        InfoRow(
+            title = "Session duration",
+            value = sessionDurationLabel(
+                isConnected = vpnState is VpnState.Running,
+                startedAtMillis = sessionStartedAtMillis,
+            ),
+        )
+        InfoRow(
+            title = "Foreground notification",
+            value = if (foregroundNotificationActive) "Active" else "Inactive",
+        )
+        InfoRow(title = "Android SDK", value = Build.VERSION.SDK_INT.toString())
+    }
+}
+
+@Composable
+private fun DiagnosticsLab(
+    vpnState: VpnState,
+    runtimeState: RuntimeState,
+    latestProtectResult: ProtectExperimentResult,
+    protectExperimentEnabled: Boolean,
+    onRunProtectExperiment: () -> Unit,
+) {
+    SectionCard(title = "Diagnostics Lab") {
+        LabCard(
+            title = "Protect Experiment",
+            status = latestProtectResult.statusLabel,
+            detail = latestProtectResult.reasonLabel,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = detail,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-            )
+            Button(
+                onClick = onRunProtectExperiment,
+                enabled = protectExperimentEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(text = "Run Protect Experiment")
+            }
         }
+        LabCard(
+            title = "VPN Lifecycle",
+            status = vpnState.label,
+            detail = "Current state: ${vpnState.name}",
+        )
+        LabCard(
+            title = "Runtime Lifecycle",
+            status = runtimeState.label,
+            detail = "Dummy runtime state: ${runtimeState.name}",
+        )
     }
 }
 
 @Composable
 private fun DiagnosticsHistory(
     events: List<DiagnosticEvent>,
-    protectExperimentEnabled: Boolean,
     onClear: () -> Unit,
-    onRunProtectExperiment: () -> Unit,
+    onCopyDiagnostics: () -> Unit,
+) {
+    SectionCard(title = "Diagnostics") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = onCopyDiagnostics,
+                enabled = events.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Text(text = "Copy")
+            }
+            TextButton(
+                onClick = onClear,
+                enabled = events.isNotEmpty(),
+            ) {
+                Text(text = "Clear")
+            }
+        }
+
+        if (events.isEmpty()) {
+            Text(
+                text = "No events",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(
+                    items = events.takeLast(DIAGNOSTIC_EVENT_LIMIT).asReversed(),
+                ) { event ->
+                    DiagnosticEventRow(event = event)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -234,73 +334,98 @@ private fun DiagnosticsHistory(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun LabCard(
+    title: String,
+    status: String,
+    detail: String,
+    action: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Diagnostics",
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
-                TextButton(
-                    onClick = onClear,
-                    enabled = events.isNotEmpty(),
-                ) {
-                    Text(text = "Clear")
-                }
+                Badge(text = status)
             }
-
-            Button(
-                onClick = onRunProtectExperiment,
-                enabled = protectExperimentEnabled,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text(text = "Run Protect Experiment")
-            }
-
-            if (events.isEmpty()) {
-                Text(
-                    text = "No events",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(
-                        items = events.asReversed(),
-                    ) { event ->
-                        DiagnosticEventRow(event = event)
-                    }
-                }
-            }
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.76f),
+            )
+            action?.invoke(this)
         }
+    }
+}
+
+@Composable
+private fun InfoRow(
+    title: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
 @Composable
 private fun DiagnosticEventRow(event: DiagnosticEvent) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.58f),
+                shape = RoundedCornerShape(8.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "${event.source} / ${event.level}",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Badge(text = event.level.name)
+                Badge(text = event.source.name)
+            }
             Text(
                 text = event.timestampLabel(),
                 style = MaterialTheme.typography.labelSmall,
@@ -310,14 +435,97 @@ private fun DiagnosticEventRow(event: DiagnosticEvent) {
         Text(
             text = event.message,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
         )
     }
+}
+
+@Composable
+private fun Badge(text: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun sessionDurationLabel(
+    isConnected: Boolean,
+    startedAtMillis: Long?,
+): String {
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    LaunchedEffect(isConnected, startedAtMillis) {
+        while (isConnected && startedAtMillis != null) {
+            nowMillis = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+
+    if (!isConnected || startedAtMillis == null) return "Not connected"
+
+    val elapsedSeconds = ((nowMillis - startedAtMillis).coerceAtLeast(0L) / 1000L).toInt()
+    val minutes = elapsedSeconds / 60
+    val seconds = elapsedSeconds % 60
+    return "%02d:%02d".format(minutes, seconds)
 }
 
 private fun DiagnosticEvent.timestampLabel(): String {
     return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(timestampMillis))
 }
+
+private fun List<DiagnosticEvent>.latestProtectExperimentResult(): ProtectExperimentResult {
+    val latestProtectEvent = asReversed().firstOrNull {
+        it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentCompleted.eventName) ||
+            it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentFailed.eventName)
+    } ?: return ProtectExperimentResult.NotRun
+
+    val reason = latestProtectEvent.reason()
+    return if (latestProtectEvent.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentCompleted.eventName)) {
+        ProtectExperimentResult.Passed(reason)
+    } else {
+        ProtectExperimentResult.Failed(reason)
+    }
+}
+
+private fun DiagnosticEvent.reason(): String {
+    val rawReason = message.substringAfter(" reason=", missingDelimiterValue = "").trim()
+    return if (rawReason == "protect returned false") {
+        "Socket protection failed on this run. No connection was attempted."
+    } else {
+        rawReason.ifBlank { "No reason recorded" }
+    }
+}
+
+private sealed interface ProtectExperimentResult {
+    val statusLabel: String
+    val reasonLabel: String
+
+    data object NotRun : ProtectExperimentResult {
+        override val statusLabel = "Not run"
+        override val reasonLabel = "Run while connected to validate protect-before-connect ordering."
+    }
+
+    data class Passed(private val reason: String) : ProtectExperimentResult {
+        override val statusLabel = "Passed"
+        override val reasonLabel = "Last reason: $reason"
+    }
+
+    data class Failed(private val reason: String) : ProtectExperimentResult {
+        override val statusLabel = "Failed"
+        override val reasonLabel = "Last reason: $reason"
+    }
+}
+
+private const val DIAGNOSTIC_EVENT_LIMIT = 20
 
 @Preview(showBackground = true)
 @Composable
@@ -326,9 +534,12 @@ private fun AegisNetAppPreview() {
         vpnState = MutableStateFlow(VpnState.Idle),
         runtimeState = MutableStateFlow(RuntimeState.Stopped),
         diagnostics = MutableStateFlow(emptyList()),
+        sessionStartedAtMillis = MutableStateFlow(null),
+        foregroundNotificationActive = MutableStateFlow(false),
         onConnect = {},
         onDisconnect = {},
         onClearDiagnostics = {},
         onRunProtectExperiment = {},
+        onCopyDiagnostics = {},
     )
 }

@@ -1,6 +1,8 @@
 package net.aegisnet.app
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.VpnService
 import android.os.Bundle
@@ -38,10 +40,13 @@ class MainActivity : ComponentActivity() {
                 vpnState = AegisVpnController.state,
                 runtimeState = AegisVpnController.runtimeState,
                 diagnostics = AegisVpnController.diagnostics,
+                sessionStartedAtMillis = AegisVpnController.sessionStartedAtMillis,
+                foregroundNotificationActive = AegisVpnController.foregroundNotificationActive,
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,
                 onClearDiagnostics = AegisVpnController::clearDiagnostics,
                 onRunProtectExperiment = ::runProtectExperiment,
+                onCopyDiagnostics = ::copyDiagnostics,
             )
         }
     }
@@ -85,6 +90,21 @@ class MainActivity : ComponentActivity() {
                 this,
                 AegisVpnService::class.java,
             ).setAction(AegisVpnService.ACTION_RUN_PROTECT_EXPERIMENT),
+        )
+    }
+
+    private fun copyDiagnostics() {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(
+                "AegisNet diagnostics",
+                AegisVpnController.diagnosticsText(),
+            ),
+        )
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.Ui,
+            message = "Diagnostics copied to clipboard",
         )
     }
 }

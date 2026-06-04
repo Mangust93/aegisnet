@@ -213,6 +213,7 @@ class AegisVpnService : VpnService() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(status))
         foregroundActive = true
+        AegisVpnController.updateForegroundNotificationActive(true)
         AegisVpnController.addDiagnostic(
             level = DiagnosticLevel.Info,
             source = DiagnosticSource.Vpn,
@@ -229,6 +230,7 @@ class AegisVpnService : VpnService() {
         if (!foregroundActive) return
         stopForeground(STOP_FOREGROUND_REMOVE)
         foregroundActive = false
+        AegisVpnController.updateForegroundNotificationActive(false)
         AegisVpnController.addDiagnostic(
             level = DiagnosticLevel.Info,
             source = DiagnosticSource.Vpn,
