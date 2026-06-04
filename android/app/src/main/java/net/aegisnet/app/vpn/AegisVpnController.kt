@@ -7,6 +7,7 @@ import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.diagnostics.DiagnosticsStore
+import net.aegisnet.app.firewall.AppVpnMode
 import net.aegisnet.app.networking.NetworkingLabTest
 import net.aegisnet.app.networking.NetworkingLabTestResult
 import net.aegisnet.app.networking.initialNetworkingLabResults
@@ -21,6 +22,9 @@ object AegisVpnController {
     private val mutableSessionStartedAtMillis = MutableStateFlow<Long?>(null)
     private val mutableForegroundNotificationActive = MutableStateFlow(false)
     private val mutableNetworkingLabResults = MutableStateFlow(initialNetworkingLabResults)
+    private val mutableCurrentMode = MutableStateFlow(AppVpnMode.Diagnostics)
+    private val mutableActiveBlockedAppCount = MutableStateFlow(0)
+    private val mutableLastFirewallResult = MutableStateFlow("Not run")
 
     val state: StateFlow<VpnState> = mutableState.asStateFlow()
     val runtimeState: StateFlow<RuntimeState> = mutableRuntimeState.asStateFlow()
@@ -29,6 +33,9 @@ object AegisVpnController {
     val foregroundNotificationActive: StateFlow<Boolean> = mutableForegroundNotificationActive.asStateFlow()
     val networkingLabResults: StateFlow<Map<NetworkingLabTest, NetworkingLabTestResult>> =
         mutableNetworkingLabResults.asStateFlow()
+    val currentMode: StateFlow<AppVpnMode> = mutableCurrentMode.asStateFlow()
+    val activeBlockedAppCount: StateFlow<Int> = mutableActiveBlockedAppCount.asStateFlow()
+    val lastFirewallResult: StateFlow<String> = mutableLastFirewallResult.asStateFlow()
 
     @Synchronized
     fun connect() = apply(machine.connect())
@@ -99,6 +106,30 @@ object AegisVpnController {
     }
 
     @Synchronized
+    fun selectMode(mode: AppVpnMode) {
+        mutableCurrentMode.value = mode
+        if (mode == AppVpnMode.AppFirewall) {
+            addDiagnostic(
+                level = DiagnosticLevel.Info,
+                source = DiagnosticSource.Ui,
+                message = "app_firewall_mode_selected",
+            )
+        }
+    }
+
+    @Synchronized
+    fun updateActiveFirewall(mode: AppVpnMode, blockedAppCount: Int) {
+        mutableCurrentMode.value = mode
+        mutableActiveBlockedAppCount.value =
+            if (mode == AppVpnMode.AppFirewall) blockedAppCount.coerceAtLeast(0) else 0
+    }
+
+    @Synchronized
+    fun updateLastFirewallResult(result: String) {
+        mutableLastFirewallResult.value = result
+    }
+
+    @Synchronized
     fun clearDiagnostics() {
         diagnosticsStore.clear()
         mutableDiagnostics.value = diagnosticsStore.snapshot()
@@ -119,7 +150,10 @@ object AegisVpnController {
                 VpnState.Idle,
                 VpnState.Revoked,
                 is VpnState.Error,
-                -> mutableSessionStartedAtMillis.value = null
+                -> {
+                    mutableSessionStartedAtMillis.value = null
+                    mutableActiveBlockedAppCount.value = 0
+                }
                 else -> Unit
             }
         }
