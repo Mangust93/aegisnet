@@ -7,6 +7,9 @@ import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.diagnostics.DiagnosticsStore
+import net.aegisnet.app.networking.NetworkingLabTest
+import net.aegisnet.app.networking.NetworkingLabTestResult
+import net.aegisnet.app.networking.initialNetworkingLabResults
 import net.aegisnet.app.runtime.RuntimeState
 
 object AegisVpnController {
@@ -17,12 +20,15 @@ object AegisVpnController {
     private val mutableDiagnostics = MutableStateFlow<List<DiagnosticEvent>>(emptyList())
     private val mutableSessionStartedAtMillis = MutableStateFlow<Long?>(null)
     private val mutableForegroundNotificationActive = MutableStateFlow(false)
+    private val mutableNetworkingLabResults = MutableStateFlow(initialNetworkingLabResults)
 
     val state: StateFlow<VpnState> = mutableState.asStateFlow()
     val runtimeState: StateFlow<RuntimeState> = mutableRuntimeState.asStateFlow()
     val diagnostics: StateFlow<List<DiagnosticEvent>> = mutableDiagnostics.asStateFlow()
     val sessionStartedAtMillis: StateFlow<Long?> = mutableSessionStartedAtMillis.asStateFlow()
     val foregroundNotificationActive: StateFlow<Boolean> = mutableForegroundNotificationActive.asStateFlow()
+    val networkingLabResults: StateFlow<Map<NetworkingLabTest, NetworkingLabTestResult>> =
+        mutableNetworkingLabResults.asStateFlow()
 
     @Synchronized
     fun connect() = apply(machine.connect())
@@ -82,6 +88,14 @@ object AegisVpnController {
     @Synchronized
     fun updateForegroundNotificationActive(active: Boolean) {
         mutableForegroundNotificationActive.value = active
+    }
+
+    @Synchronized
+    fun updateNetworkingLabResult(
+        test: NetworkingLabTest,
+        result: NetworkingLabTestResult,
+    ) {
+        mutableNetworkingLabResults.value = mutableNetworkingLabResults.value + (test to result)
     }
 
     @Synchronized

@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
@@ -49,6 +50,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.ProtectExperimentDiagnosticName
+import net.aegisnet.app.networking.DeviceNetworkInfo
+import net.aegisnet.app.networking.NetworkingLabTest
+import net.aegisnet.app.networking.NetworkingLabTestResult
+import net.aegisnet.app.networking.initialNetworkingLabResults
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.runtime.label
 import net.aegisnet.app.runtime.name
@@ -62,9 +67,12 @@ fun AegisNetApp(
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     sessionStartedAtMillis: StateFlow<Long?>,
     foregroundNotificationActive: StateFlow<Boolean>,
+    networkingLabResults: StateFlow<Map<NetworkingLabTest, NetworkingLabTestResult>>,
+    deviceNetworkInfo: StateFlow<DeviceNetworkInfo>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
+    onRunNetworkingTest: (NetworkingLabTest) -> Unit,
     onRunProtectExperiment: () -> Unit,
     onCopyDiagnostics: () -> Unit,
 ) {
@@ -79,9 +87,12 @@ fun AegisNetApp(
                 diagnostics = diagnostics,
                 sessionStartedAtMillis = sessionStartedAtMillis,
                 foregroundNotificationActive = foregroundNotificationActive,
+                networkingLabResults = networkingLabResults,
+                deviceNetworkInfo = deviceNetworkInfo,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
                 onClearDiagnostics = onClearDiagnostics,
+                onRunNetworkingTest = onRunNetworkingTest,
                 onRunProtectExperiment = onRunProtectExperiment,
                 onCopyDiagnostics = onCopyDiagnostics,
                 modifier = Modifier
@@ -99,9 +110,12 @@ private fun ConnectionShell(
     diagnostics: StateFlow<List<DiagnosticEvent>>,
     sessionStartedAtMillis: StateFlow<Long?>,
     foregroundNotificationActive: StateFlow<Boolean>,
+    networkingLabResults: StateFlow<Map<NetworkingLabTest, NetworkingLabTestResult>>,
+    deviceNetworkInfo: StateFlow<DeviceNetworkInfo>,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
+    onRunNetworkingTest: (NetworkingLabTest) -> Unit,
     onRunProtectExperiment: () -> Unit,
     onCopyDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
@@ -111,6 +125,8 @@ private fun ConnectionShell(
     val currentDiagnostics by diagnostics.collectAsState()
     val currentSessionStartedAtMillis by sessionStartedAtMillis.collectAsState()
     val currentForegroundNotificationActive by foregroundNotificationActive.collectAsState()
+    val currentNetworkingLabResults by networkingLabResults.collectAsState()
+    val currentDeviceNetworkInfo by deviceNetworkInfo.collectAsState()
     val isConnected = currentVpnState.isActive
     val latestProtectResult = currentDiagnostics.latestProtectExperimentResult()
 
@@ -162,15 +178,16 @@ private fun ConnectionShell(
         DeviceSessionInfo(
             vpnState = currentVpnState,
             runtimeState = currentRuntimeState,
+            deviceNetworkInfo = currentDeviceNetworkInfo,
             sessionStartedAtMillis = currentSessionStartedAtMillis,
             foregroundNotificationActive = currentForegroundNotificationActive,
         )
 
-        DiagnosticsLab(
-            vpnState = currentVpnState,
-            runtimeState = currentRuntimeState,
+        NetworkingLab(
+            networkingLabResults = currentNetworkingLabResults,
             latestProtectResult = latestProtectResult,
             protectExperimentEnabled = currentVpnState is VpnState.Running,
+            onRunNetworkingTest = onRunNetworkingTest,
             onRunProtectExperiment = onRunProtectExperiment,
         )
 
@@ -208,12 +225,15 @@ private fun StatusPill(vpnState: VpnState) {
 private fun DeviceSessionInfo(
     vpnState: VpnState,
     runtimeState: RuntimeState,
+    deviceNetworkInfo: DeviceNetworkInfo,
     sessionStartedAtMillis: Long?,
     foregroundNotificationActive: Boolean,
 ) {
-    SectionCard(title = "Device / Session") {
+    SectionCard(title = "Device / Network") {
         InfoRow(title = "VPN state", value = vpnState.name)
         InfoRow(title = "Runtime state", value = runtimeState.name)
+        InfoRow(title = "Network type", value = deviceNetworkInfo.networkType)
+        InfoRow(title = "App package/version", value = deviceNetworkInfo.packageVersionLabel)
         InfoRow(
             title = "Session duration",
             value = sessionDurationLabel(
@@ -230,14 +250,31 @@ private fun DeviceSessionInfo(
 }
 
 @Composable
-private fun DiagnosticsLab(
-    vpnState: VpnState,
-    runtimeState: RuntimeState,
+private fun NetworkingLab(
+    networkingLabResults: Map<NetworkingLabTest, NetworkingLabTestResult>,
     latestProtectResult: ProtectExperimentResult,
     protectExperimentEnabled: Boolean,
+    onRunNetworkingTest: (NetworkingLabTest) -> Unit,
     onRunProtectExperiment: () -> Unit,
 ) {
-    SectionCard(title = "Diagnostics Lab") {
+    SectionCard(title = "Networking Lab") {
+        NetworkingLabTest.entries.forEach { test ->
+            val result = networkingLabResults[test] ?: NetworkingLabTestResult.NotRun
+            LabCard(
+                title = test.title,
+                status = result.status.label,
+                detail = result.detailLabel,
+            ) {
+                Button(
+                    onClick = { onRunNetworkingTest(test) },
+                    enabled = result.status.label != "Running",
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Text(text = "Run")
+                }
+            }
+        }
         LabCard(
             title = "Protect Experiment",
             status = latestProtectResult.statusLabel,
@@ -252,16 +289,6 @@ private fun DiagnosticsLab(
                 Text(text = "Run Protect Experiment")
             }
         }
-        LabCard(
-            title = "VPN Lifecycle",
-            status = vpnState.label,
-            detail = "Current state: ${vpnState.name}",
-        )
-        LabCard(
-            title = "Runtime Lifecycle",
-            status = runtimeState.label,
-            detail = "Dummy runtime state: ${runtimeState.name}",
-        )
     }
 }
 
@@ -367,6 +394,7 @@ private fun LabCard(
             ) {
                 Text(
                     text = title,
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -394,13 +422,16 @@ private fun InfoRow(
     ) {
         Text(
             text = title,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
         )
         Text(
             text = value,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.End,
         )
     }
 }
@@ -484,15 +515,18 @@ private fun DiagnosticEvent.timestampLabel(): String {
 
 private fun List<DiagnosticEvent>.latestProtectExperimentResult(): ProtectExperimentResult {
     val latestProtectEvent = asReversed().firstOrNull {
+        it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentStarted.eventName) ||
         it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentCompleted.eventName) ||
             it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentFailed.eventName)
     } ?: return ProtectExperimentResult.NotRun
 
     val reason = latestProtectEvent.reason()
-    return if (latestProtectEvent.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentCompleted.eventName)) {
-        ProtectExperimentResult.Passed(reason)
-    } else {
-        ProtectExperimentResult.Failed(reason)
+    return when {
+        latestProtectEvent.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentStarted.eventName) ->
+            ProtectExperimentResult.Running(reason)
+        latestProtectEvent.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentCompleted.eventName) ->
+            ProtectExperimentResult.Passed(reason)
+        else -> ProtectExperimentResult.Failed(reason)
     }
 }
 
@@ -512,6 +546,11 @@ private sealed interface ProtectExperimentResult {
     data object NotRun : ProtectExperimentResult {
         override val statusLabel = "Not run"
         override val reasonLabel = "Run while connected to validate protect-before-connect ordering."
+    }
+
+    data class Running(private val reason: String) : ProtectExperimentResult {
+        override val statusLabel = "Running"
+        override val reasonLabel = "Last reason: $reason"
     }
 
     data class Passed(private val reason: String) : ProtectExperimentResult {
@@ -536,9 +575,12 @@ private fun AegisNetAppPreview() {
         diagnostics = MutableStateFlow(emptyList()),
         sessionStartedAtMillis = MutableStateFlow(null),
         foregroundNotificationActive = MutableStateFlow(false),
+        networkingLabResults = MutableStateFlow(initialNetworkingLabResults),
+        deviceNetworkInfo = MutableStateFlow(DeviceNetworkInfo.Unknown),
         onConnect = {},
         onDisconnect = {},
         onClearDiagnostics = {},
+        onRunNetworkingTest = {},
         onRunProtectExperiment = {},
         onCopyDiagnostics = {},
     )

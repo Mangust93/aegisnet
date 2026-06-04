@@ -18,5 +18,6 @@ enum class DiagnosticSource {
     Ui,
     Vpn,
     Runtime,
+    Networking,
     System,
 }
