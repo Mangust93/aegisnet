@@ -56,7 +56,9 @@ import net.aegisnet.app.diagnostics.ProtectExperimentDiagnosticName
 import net.aegisnet.app.firewall.AppVpnMode
 import net.aegisnet.app.firewall.FirewallProfile
 import net.aegisnet.app.firewall.InstalledAppInfo
+import net.aegisnet.app.networking.CheckStatus
 import net.aegisnet.app.networking.DeviceNetworkInfo
+import net.aegisnet.app.networking.NetworkMonitorSnapshot
 import net.aegisnet.app.networking.NetworkingLabTest
 import net.aegisnet.app.networking.NetworkingLabTestResult
 import net.aegisnet.app.networking.initialNetworkingLabResults
@@ -82,6 +84,7 @@ fun AegisNetApp(
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
+    networkMonitorHistory: StateFlow<List<NetworkMonitorSnapshot>>,
     onModeSelected: (AppVpnMode) -> Unit,
     onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
@@ -89,6 +92,7 @@ fun AegisNetApp(
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
     onRunNetworkingTest: (NetworkingLabTest) -> Unit,
+    onRunFullNetworkCheck: () -> Unit,
     onRunProtectExperiment: () -> Unit,
     onCopyDiagnostics: () -> Unit,
 ) {
@@ -112,6 +116,7 @@ fun AegisNetApp(
                 currentMode = currentMode,
                 activeBlockedAppCount = activeBlockedAppCount,
                 lastFirewallResult = lastFirewallResult,
+                networkMonitorHistory = networkMonitorHistory,
                 onModeSelected = onModeSelected,
                 onFirewallProfileSelected = onFirewallProfileSelected,
                 onFirewallPackageToggled = onFirewallPackageToggled,
@@ -119,6 +124,7 @@ fun AegisNetApp(
                 onDisconnect = onDisconnect,
                 onClearDiagnostics = onClearDiagnostics,
                 onRunNetworkingTest = onRunNetworkingTest,
+                onRunFullNetworkCheck = onRunFullNetworkCheck,
                 onRunProtectExperiment = onRunProtectExperiment,
                 onCopyDiagnostics = onCopyDiagnostics,
                 modifier = Modifier
@@ -145,6 +151,7 @@ private fun ConnectionShell(
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
+    networkMonitorHistory: StateFlow<List<NetworkMonitorSnapshot>>,
     onModeSelected: (AppVpnMode) -> Unit,
     onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
@@ -152,6 +159,7 @@ private fun ConnectionShell(
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
     onRunNetworkingTest: (NetworkingLabTest) -> Unit,
+    onRunFullNetworkCheck: () -> Unit,
     onRunProtectExperiment: () -> Unit,
     onCopyDiagnostics: () -> Unit,
     modifier: Modifier = Modifier,
@@ -170,6 +178,7 @@ private fun ConnectionShell(
     val currentModeValue by currentMode.collectAsState()
     val currentActiveBlockedAppCount by activeBlockedAppCount.collectAsState()
     val currentLastFirewallResult by lastFirewallResult.collectAsState()
+    val currentNetworkMonitorHistory by networkMonitorHistory.collectAsState()
     val isConnected = currentVpnState.isActive
     val latestProtectResult = currentDiagnostics.latestProtectExperimentResult()
     val connectEnabled = currentSelectedMode != AppVpnMode.AppFirewall ||
@@ -238,6 +247,11 @@ private fun ConnectionShell(
             lastFirewallResult = currentLastFirewallResult,
             activeFirewallProfile = currentActiveFirewallProfile,
             selectedFirewallPackageCount = currentSelectedFirewallPackages.size,
+        )
+
+        NetworkMonitor(
+            history = currentNetworkMonitorHistory,
+            onRunFullNetworkCheck = onRunFullNetworkCheck,
         )
 
         if (currentSelectedMode == AppVpnMode.AppFirewall) {
@@ -492,6 +506,49 @@ private fun AppFirewallRow(
                     text = app.packageName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetworkMonitor(
+    history: List<NetworkMonitorSnapshot>,
+    onRunFullNetworkCheck: () -> Unit,
+) {
+    val latest = history.firstOrNull()
+    val isRunning = latest?.status == CheckStatus.Running
+
+    SectionCard(title = "Network Monitor") {
+        Button(
+            onClick = onRunFullNetworkCheck,
+            enabled = !isRunning,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Text(text = "Run Full Network Check")
+        }
+        InfoRow(title = "Latest public IP", value = latest?.publicIpLabel ?: "Not checked")
+        InfoRow(title = "Network type", value = latest?.networkType ?: "Not checked")
+        InfoRow(title = "VPN active", value = latest?.vpnActive?.let { if (it) "Yes" else "No" } ?: "Not checked")
+        InfoRow(title = "Check status", value = latest?.status?.label ?: CheckStatus.NotRun.label)
+        InfoRow(title = "DNS resolve", value = latest?.dnsStatus?.label ?: CheckStatus.NotRun.label)
+        InfoRow(title = "HTTPS reachability", value = latest?.httpsStatus?.label ?: CheckStatus.NotRun.label)
+        InfoRow(title = "Duration", value = latest?.durationMillis?.let { "$it ms" } ?: "Not checked")
+        InfoRow(title = "Last error", value = latest?.lastError ?: "None")
+
+        if (history.isNotEmpty()) {
+            Text(
+                text = "Recent checks",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            history.take(NETWORK_MONITOR_HISTORY_LIMIT).forEach { snapshot ->
+                LabCard(
+                    title = snapshot.timestampLabel(),
+                    status = snapshot.status.label,
+                    detail = "${snapshot.networkType}, IP ${snapshot.publicIpLabel}, ${snapshot.durationMillis} ms",
                 )
             }
         }
@@ -762,6 +819,10 @@ private fun DiagnosticEvent.timestampLabel(): String {
     return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(timestampMillis))
 }
 
+private fun NetworkMonitorSnapshot.timestampLabel(): String {
+    return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(checkedAtMillis))
+}
+
 private fun List<DiagnosticEvent>.latestProtectExperimentResult(): ProtectExperimentResult {
     val latestProtectEvent = asReversed().firstOrNull {
         it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentStarted.eventName) ||
@@ -814,6 +875,7 @@ private sealed interface ProtectExperimentResult {
 }
 
 private const val DIAGNOSTIC_EVENT_LIMIT = 20
+private const val NETWORK_MONITOR_HISTORY_LIMIT = 5
 
 @Preview(showBackground = true)
 @Composable
@@ -833,6 +895,7 @@ private fun AegisNetAppPreview() {
         currentMode = MutableStateFlow(AppVpnMode.Diagnostics),
         activeBlockedAppCount = MutableStateFlow(0),
         lastFirewallResult = MutableStateFlow("Not run"),
+        networkMonitorHistory = MutableStateFlow(emptyList()),
         onModeSelected = {},
         onFirewallProfileSelected = {},
         onFirewallPackageToggled = { _, _ -> },
@@ -840,6 +903,7 @@ private fun AegisNetAppPreview() {
         onDisconnect = {},
         onClearDiagnostics = {},
         onRunNetworkingTest = {},
+        onRunFullNetworkCheck = {},
         onRunProtectExperiment = {},
         onCopyDiagnostics = {},
     )

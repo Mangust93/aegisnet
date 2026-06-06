@@ -24,7 +24,10 @@ import net.aegisnet.app.firewall.AppVpnMode
 import net.aegisnet.app.firewall.FirewallProfile
 import net.aegisnet.app.firewall.InstalledAppInfo
 import net.aegisnet.app.firewall.InstalledAppsRepository
+import net.aegisnet.app.networking.CheckStatus
 import net.aegisnet.app.networking.DeviceNetworkInfo
+import net.aegisnet.app.networking.NetworkMonitorRunner
+import net.aegisnet.app.networking.NetworkMonitorSnapshot
 import net.aegisnet.app.networking.NetworkingLabRunner
 import net.aegisnet.app.networking.NetworkingLabStatus
 import net.aegisnet.app.networking.NetworkingLabTest
@@ -35,12 +38,14 @@ import net.aegisnet.app.vpn.AegisVpnService
 
 class MainActivity : ComponentActivity() {
     private val networkingLabRunner = NetworkingLabRunner()
+    private val networkMonitorRunner = NetworkMonitorRunner()
     private val deviceNetworkInfo = MutableStateFlow(DeviceNetworkInfo.Unknown)
     private lateinit var appFirewallSelectionStore: AppFirewallSelectionStore
     private lateinit var installedAppsRepository: InstalledAppsRepository
     private val installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
     private val selectedFirewallPackages = MutableStateFlow<Set<String>>(emptySet())
     private val activeFirewallProfile = MutableStateFlow(FirewallProfile.Custom)
+    private val networkMonitorHistory = MutableStateFlow<List<NetworkMonitorSnapshot>>(emptyList())
     private val selectedMode = MutableStateFlow(AppVpnMode.Diagnostics)
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -90,6 +95,7 @@ class MainActivity : ComponentActivity() {
                 currentMode = AegisVpnController.currentMode,
                 activeBlockedAppCount = AegisVpnController.activeBlockedAppCount,
                 lastFirewallResult = AegisVpnController.lastFirewallResult,
+                networkMonitorHistory = networkMonitorHistory,
                 onModeSelected = ::selectMode,
                 onFirewallProfileSelected = ::selectFirewallProfile,
                 onFirewallPackageToggled = ::toggleFirewallPackage,
@@ -97,6 +103,7 @@ class MainActivity : ComponentActivity() {
                 onDisconnect = ::disconnect,
                 onClearDiagnostics = AegisVpnController::clearDiagnostics,
                 onRunNetworkingTest = ::runNetworkingTest,
+                onRunFullNetworkCheck = ::runFullNetworkCheck,
                 onRunProtectExperiment = ::runProtectExperiment,
                 onCopyDiagnostics = ::copyDiagnostics,
             )
@@ -218,6 +225,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun runFullNetworkCheck() {
+        refreshDeviceNetworkInfo()
+        val runningSnapshot = NetworkMonitorSnapshot(
+            publicIp = networkMonitorHistory.value.firstOrNull()?.publicIp,
+            networkType = deviceNetworkInfo.value.networkType,
+            vpnActive = AegisVpnController.state.value.isActive,
+            status = CheckStatus.Running,
+            dnsStatus = CheckStatus.Running,
+            httpsStatus = CheckStatus.Running,
+            durationMillis = 0L,
+            lastError = null,
+            checkedAtMillis = System.currentTimeMillis(),
+        )
+        networkMonitorHistory.value = listOf(runningSnapshot) +
+            networkMonitorHistory.value.take(NETWORK_MONITOR_HISTORY_LIMIT - 1)
+        lifecycleScope.launch {
+            val networkType = deviceNetworkInfo.value.networkType
+            val vpnActive = AegisVpnController.state.value.isActive
+            val result = withContext(Dispatchers.IO) {
+                networkMonitorRunner.runFullCheck(
+                    networkType = networkType,
+                    vpnActive = vpnActive,
+                ) { event ->
+                    AegisVpnController.addDiagnostic(event)
+                }
+            }
+            networkMonitorHistory.value = listOf(result) + networkMonitorHistory.value
+                .filterNot { it.status == CheckStatus.Running }
+                .take(NETWORK_MONITOR_HISTORY_LIMIT - 1)
+            refreshDeviceNetworkInfo()
+        }
+    }
+
     private fun copyDiagnostics() {
         val clipboard = getSystemService(ClipboardManager::class.java)
         clipboard.setPrimaryClip(
@@ -294,4 +334,7 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(0L)
     }
 
+    private companion object {
+        const val NETWORK_MONITOR_HISTORY_LIMIT = 8
+    }
 }
