@@ -25,14 +25,19 @@ import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.diagnostics.DiagnosticsStore
 import net.aegisnet.app.firewall.AppVpnMode
 import net.aegisnet.app.runtime.DummyRuntime
+import net.aegisnet.app.runtime.ExperimentalSingBoxRuntime
+import net.aegisnet.app.runtime.ImportedProxyConfig
 import net.aegisnet.app.runtime.NetworkRuntime
+import net.aegisnet.app.runtime.ProxyConfigStore
 import net.aegisnet.app.runtime.RuntimeConfig
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.vpn.experiment.DummySocketProtectExperiment
 import net.aegisnet.app.vpn.experiment.VpnServiceSocketProtector
 
 class AegisVpnService : VpnService() {
-    private val runtime: NetworkRuntime = DummyRuntime()
+    private val dummyRuntime: NetworkRuntime = DummyRuntime()
+    private val realRuntime: NetworkRuntime = ExperimentalSingBoxRuntime()
+    private var activeRuntime: NetworkRuntime = dummyRuntime
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var vpnInterface: ParcelFileDescriptor? = null
     private var foregroundActive = false
@@ -41,10 +46,16 @@ class AegisVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        runtime.state
+        dummyRuntime.state
             .onEach(AegisVpnController::updateRuntimeState)
             .launchIn(serviceScope)
-        runtime.diagnostics
+        dummyRuntime.diagnostics
+            .onEach(AegisVpnController::addDiagnostic)
+            .launchIn(serviceScope)
+        realRuntime.state
+            .onEach(AegisVpnController::updateRuntimeState)
+            .launchIn(serviceScope)
+        realRuntime.diagnostics
             .onEach(AegisVpnController::addDiagnostic)
             .launchIn(serviceScope)
     }
@@ -76,7 +87,7 @@ class AegisVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        if (vpnInterface != null || runtime.state.value != RuntimeState.Stopped) {
+        if (vpnInterface != null || activeRuntime.state.value != RuntimeState.Stopped) {
             stopRuntimeBlocking()
             closeVpnInterface()
             stopForegroundNotification()
@@ -107,6 +118,8 @@ class AegisVpnService : VpnService() {
             when (activeMode) {
                 AppVpnMode.Diagnostics -> startDiagnosticsVpn()
                 AppVpnMode.AppFirewall -> startAppFirewallVpn(intentSelectedPackages(intent))
+                AppVpnMode.NetworkMonitor -> failAndStop("Network Monitor mode does not start a VPN runtime")
+                AppVpnMode.RealProxyRuntime -> startRealProxyRuntimeVpn()
             }
         } catch (error: RuntimeException) {
             failAndStop("VPN interface error: ${error.message ?: error.javaClass.simpleName}")
@@ -126,7 +139,11 @@ class AegisVpnService : VpnService() {
         }
 
         AegisVpnController.updateActiveFirewall(AppVpnMode.Diagnostics, 0)
-        startDummyRuntime()
+        startRuntime(
+            runtime = dummyRuntime,
+            runtimeName = "Dummy runtime",
+            proxyConfig = null,
+        )
     }
 
     private fun startAppFirewallVpn(selectedPackages: List<String>) {
@@ -192,6 +209,39 @@ class AegisVpnService : VpnService() {
         updateForegroundNotification(VpnState.Running)
     }
 
+    private fun startRealProxyRuntimeVpn() {
+        val proxyConfig = ProxyConfigStore(this).loadActive()
+        if (proxyConfig == null) {
+            failAndStop("Real Proxy Runtime requires an imported active config")
+            return
+        }
+
+        vpnInterface = Builder()
+            .setSession("AegisNet Real Proxy Experimental")
+            .setMtu(DUMMY_MTU)
+            .addAddress(DUMMY_IPV4_ADDRESS, DUMMY_IPV4_PREFIX_LENGTH)
+            .addRoute(IPV4_DEFAULT_ROUTE, IPV4_DEFAULT_PREFIX_LENGTH)
+            .addDnsServer(EXPERIMENTAL_DNS_SERVER)
+            .establish()
+
+        if (vpnInterface == null) {
+            failAndStop("VPN interface was not established")
+            return
+        }
+
+        AegisVpnController.updateActiveFirewall(AppVpnMode.RealProxyRuntime, 0)
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.Vpn,
+            message = "real_proxy_vpn_started config=${proxyConfig.name} type=${proxyConfig.type.name}",
+        )
+        startRuntime(
+            runtime = realRuntime,
+            runtimeName = "Experimental real runtime",
+            proxyConfig = proxyConfig,
+        )
+    }
+
     private fun stopVpn() {
         AegisVpnController.disconnect()
         updateForegroundNotification(VpnState.Stopping)
@@ -224,6 +274,7 @@ class AegisVpnService : VpnService() {
     }
 
     private fun failAndStop(message: String) {
+        AegisVpnController.updateLastRuntimeError(message)
         stopRuntimeBlocking()
         closeVpnInterface()
         stopForegroundNotification()
@@ -254,12 +305,17 @@ class AegisVpnService : VpnService() {
         AegisVpnController.updateActiveFirewall(activeMode, 0)
     }
 
-    private fun startDummyRuntime() {
+    private fun startRuntime(
+        runtime: NetworkRuntime,
+        runtimeName: String,
+        proxyConfig: ImportedProxyConfig?,
+    ) {
         val currentInterface = vpnInterface ?: run {
             failAndStop("VPN interface was closed before runtime start")
             return
         }
         val sessionId = "aegis-${System.currentTimeMillis()}"
+        activeRuntime = runtime
         runtimeStartJob?.cancel()
         runtimeStartJob = serviceScope.launch {
             try {
@@ -267,6 +323,7 @@ class AegisVpnService : VpnService() {
                     RuntimeConfig(
                         sessionId = sessionId,
                         tunFd = currentInterface.fd,
+                        proxyConfig = proxyConfig,
                     ),
                 )
                 if (vpnInterface != null && runtime.state.value == RuntimeState.Running) {
@@ -276,7 +333,15 @@ class AegisVpnService : VpnService() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: RuntimeException) {
-                failAndStop("Dummy runtime error: ${error.message ?: error.javaClass.simpleName}")
+                failAndStop("$runtimeName error: ${error.message ?: error.javaClass.simpleName}")
+                return@launch
+            }
+
+            val failedState = runtime.state.value as? RuntimeState.Failed
+            if (failedState != null) {
+                AegisVpnController.updateRuntimeState(failedState)
+                AegisVpnController.updateLastRuntimeError(failedState.message)
+                failAndStop("$runtimeName failed: ${failedState.message}")
             }
         }
     }
@@ -285,9 +350,9 @@ class AegisVpnService : VpnService() {
         runtimeStartJob?.cancel()
         runtimeStartJob = null
         runBlocking {
-            runtime.stop()
+            activeRuntime.stop()
         }
-        AegisVpnController.updateRuntimeState(runtime.state.value)
+        AegisVpnController.updateRuntimeState(activeRuntime.state.value)
     }
 
     private fun closeVpnInterface() {
@@ -387,6 +452,7 @@ class AegisVpnService : VpnService() {
         private const val DUMMY_IPV4_PREFIX_LENGTH = 32
         private const val IPV4_DEFAULT_ROUTE = "0.0.0.0"
         private const val IPV4_DEFAULT_PREFIX_LENGTH = 0
+        private const val EXPERIMENTAL_DNS_SERVER = "1.1.1.1"
     }
 
     private fun intentMode(intent: Intent): AppVpnMode {
