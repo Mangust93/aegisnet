@@ -32,7 +32,13 @@ kotlin {
     }
 }
 
+val localLibboxAar = rootProject.layout.projectDirectory.file("local-libs/libbox.aar").asFile
+
 dependencies {
+    if (localLibboxAar.isFile) {
+        implementation(files(localLibboxAar))
+    }
+
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.material3:material3")

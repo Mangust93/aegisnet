@@ -3,6 +3,7 @@
 build/
 local.properties
 *.iml
+android/local-libs/*.aar
 
 # IntelliJ / Android Studio
 .idea/

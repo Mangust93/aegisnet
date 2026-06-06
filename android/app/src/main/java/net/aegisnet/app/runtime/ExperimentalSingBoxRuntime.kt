@@ -68,8 +68,9 @@ class ExperimentalSingBoxRuntime(
         val bindingClass = findLibboxClass()
         if (bindingClass == null) {
             fail(
-                "sing-box/libbox runtime classes are not packaged. " +
-                    "Add a vetted Android libbox AAR or native binding before raw sing-box JSON can start.",
+                "libbox artifact missing: expected $EXPECTED_LIBBOX_AAR_PATH. " +
+                    "Next setup step: build or obtain a vetted Android libbox AAR, place it at that path, " +
+                    "then rebuild and map the packaged libbox API to ExperimentalSingBoxRuntime start/stop calls.",
             )
             return
         }
@@ -108,6 +109,8 @@ class ExperimentalSingBoxRuntime(
     }
 
     private companion object {
+        const val EXPECTED_LIBBOX_AAR_PATH = "android/local-libs/libbox.aar"
+
         val LIBBOX_CLASS_CANDIDATES = listOf(
             "io.nekohasekai.libbox.Libbox",
             "io.nekohasekai.libbox.BoxService",
