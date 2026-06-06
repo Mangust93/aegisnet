@@ -25,6 +25,7 @@ object AegisVpnController {
     private val mutableCurrentMode = MutableStateFlow(AppVpnMode.Diagnostics)
     private val mutableActiveBlockedAppCount = MutableStateFlow(0)
     private val mutableLastFirewallResult = MutableStateFlow("Not run")
+    private val mutableLastRuntimeError = MutableStateFlow("None")
 
     val state: StateFlow<VpnState> = mutableState.asStateFlow()
     val runtimeState: StateFlow<RuntimeState> = mutableRuntimeState.asStateFlow()
@@ -36,6 +37,7 @@ object AegisVpnController {
     val currentMode: StateFlow<AppVpnMode> = mutableCurrentMode.asStateFlow()
     val activeBlockedAppCount: StateFlow<Int> = mutableActiveBlockedAppCount.asStateFlow()
     val lastFirewallResult: StateFlow<String> = mutableLastFirewallResult.asStateFlow()
+    val lastRuntimeError: StateFlow<String> = mutableLastRuntimeError.asStateFlow()
 
     @Synchronized
     fun connect() = apply(machine.connect())
@@ -90,6 +92,14 @@ object AegisVpnController {
     @Synchronized
     fun updateRuntimeState(state: RuntimeState) {
         mutableRuntimeState.value = state
+        if (state is RuntimeState.Failed) {
+            mutableLastRuntimeError.value = state.message
+        }
+    }
+
+    @Synchronized
+    fun updateLastRuntimeError(message: String) {
+        mutableLastRuntimeError.value = message
     }
 
     @Synchronized

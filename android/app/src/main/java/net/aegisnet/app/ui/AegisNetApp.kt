@@ -62,6 +62,8 @@ import net.aegisnet.app.networking.NetworkMonitorSnapshot
 import net.aegisnet.app.networking.NetworkingLabTest
 import net.aegisnet.app.networking.NetworkingLabTestResult
 import net.aegisnet.app.networking.initialNetworkingLabResults
+import net.aegisnet.app.runtime.ImportedProxyConfig
+import net.aegisnet.app.runtime.ProxyConfigType
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.runtime.label
 import net.aegisnet.app.runtime.name
@@ -84,10 +86,16 @@ fun AegisNetApp(
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
+    lastRuntimeError: StateFlow<String>,
     networkMonitorHistory: StateFlow<List<NetworkMonitorSnapshot>>,
+    importedProxyConfigs: StateFlow<List<ImportedProxyConfig>>,
+    activeProxyConfig: StateFlow<ImportedProxyConfig?>,
+    proxyConfigValidationMessage: StateFlow<String>,
     onModeSelected: (AppVpnMode) -> Unit,
     onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
+    onImportProxyConfig: (String) -> Unit,
+    onSelectProxyConfig: (String) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
@@ -116,10 +124,16 @@ fun AegisNetApp(
                 currentMode = currentMode,
                 activeBlockedAppCount = activeBlockedAppCount,
                 lastFirewallResult = lastFirewallResult,
+                lastRuntimeError = lastRuntimeError,
                 networkMonitorHistory = networkMonitorHistory,
+                importedProxyConfigs = importedProxyConfigs,
+                activeProxyConfig = activeProxyConfig,
+                proxyConfigValidationMessage = proxyConfigValidationMessage,
                 onModeSelected = onModeSelected,
                 onFirewallProfileSelected = onFirewallProfileSelected,
                 onFirewallPackageToggled = onFirewallPackageToggled,
+                onImportProxyConfig = onImportProxyConfig,
+                onSelectProxyConfig = onSelectProxyConfig,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
                 onClearDiagnostics = onClearDiagnostics,
@@ -151,10 +165,16 @@ private fun ConnectionShell(
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
+    lastRuntimeError: StateFlow<String>,
     networkMonitorHistory: StateFlow<List<NetworkMonitorSnapshot>>,
+    importedProxyConfigs: StateFlow<List<ImportedProxyConfig>>,
+    activeProxyConfig: StateFlow<ImportedProxyConfig?>,
+    proxyConfigValidationMessage: StateFlow<String>,
     onModeSelected: (AppVpnMode) -> Unit,
     onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
+    onImportProxyConfig: (String) -> Unit,
+    onSelectProxyConfig: (String) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onClearDiagnostics: () -> Unit,
@@ -178,11 +198,19 @@ private fun ConnectionShell(
     val currentModeValue by currentMode.collectAsState()
     val currentActiveBlockedAppCount by activeBlockedAppCount.collectAsState()
     val currentLastFirewallResult by lastFirewallResult.collectAsState()
+    val currentLastRuntimeError by lastRuntimeError.collectAsState()
     val currentNetworkMonitorHistory by networkMonitorHistory.collectAsState()
+    val currentImportedProxyConfigs by importedProxyConfigs.collectAsState()
+    val currentActiveProxyConfig by activeProxyConfig.collectAsState()
+    val currentProxyConfigValidationMessage by proxyConfigValidationMessage.collectAsState()
     val isConnected = currentVpnState.isActive
     val latestProtectResult = currentDiagnostics.latestProtectExperimentResult()
-    val connectEnabled = currentSelectedMode != AppVpnMode.AppFirewall ||
-        currentSelectedFirewallPackages.isNotEmpty()
+    val connectEnabled = when (currentSelectedMode) {
+        AppVpnMode.AppFirewall -> currentSelectedFirewallPackages.isNotEmpty()
+        AppVpnMode.NetworkMonitor -> false
+        AppVpnMode.RealProxyRuntime -> currentActiveProxyConfig != null
+        AppVpnMode.Diagnostics -> true
+    }
 
     Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
@@ -247,6 +275,8 @@ private fun ConnectionShell(
             lastFirewallResult = currentLastFirewallResult,
             activeFirewallProfile = currentActiveFirewallProfile,
             selectedFirewallPackageCount = currentSelectedFirewallPackages.size,
+            activeProxyConfig = currentActiveProxyConfig,
+            lastRuntimeError = currentLastRuntimeError,
         )
 
         NetworkMonitor(
@@ -262,6 +292,15 @@ private fun ConnectionShell(
                 isConnected = isConnected,
                 onProfileSelected = onFirewallProfileSelected,
                 onPackageToggled = onFirewallPackageToggled,
+            )
+        } else if (currentSelectedMode == AppVpnMode.RealProxyRuntime) {
+            ProxyConfigImportScreen(
+                configs = currentImportedProxyConfigs,
+                activeConfig = currentActiveProxyConfig,
+                validationMessage = currentProxyConfigValidationMessage,
+                isConnected = isConnected,
+                onImport = onImportProxyConfig,
+                onSelect = onSelectProxyConfig,
             )
         } else {
             NetworkingLab(
@@ -315,6 +354,8 @@ private fun DeviceSessionInfo(
     lastFirewallResult: String,
     activeFirewallProfile: FirewallProfile,
     selectedFirewallPackageCount: Int,
+    activeProxyConfig: ImportedProxyConfig?,
+    lastRuntimeError: String,
 ) {
     SectionCard(title = "Device / Network") {
         InfoRow(title = "VPN state", value = vpnState.name)
@@ -324,6 +365,11 @@ private fun DeviceSessionInfo(
         InfoRow(title = "Active blocked apps", value = activeBlockedAppCount.toString())
         InfoRow(title = "Last firewall result", value = lastFirewallResult)
         InfoRow(title = "Runtime state", value = runtimeState.name)
+        InfoRow(title = "Last runtime error", value = lastRuntimeError)
+        InfoRow(
+            title = "Active proxy config",
+            value = activeProxyConfig?.let { "${it.name} (${it.type.label})" } ?: "None",
+        )
         InfoRow(title = "Network type", value = deviceNetworkInfo.networkType)
         InfoRow(title = "App package/version", value = deviceNetworkInfo.packageVersionLabel)
         InfoRow(
@@ -338,6 +384,93 @@ private fun DeviceSessionInfo(
             value = if (foregroundNotificationActive) "Active" else "Inactive",
         )
         InfoRow(title = "Android SDK", value = Build.VERSION.SDK_INT.toString())
+    }
+}
+
+@Composable
+private fun ProxyConfigImportScreen(
+    configs: List<ImportedProxyConfig>,
+    activeConfig: ImportedProxyConfig?,
+    validationMessage: String,
+    isConnected: Boolean,
+    onImport: (String) -> Unit,
+    onSelect: (String) -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+
+    SectionCard(title = "Proxy Config Import") {
+        InfoRow(
+            title = "Active config",
+            value = activeConfig?.let { "${it.name} (${it.type.label})" } ?: "None",
+        )
+        OutlinedTextField(
+            value = input,
+            onValueChange = { input = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp),
+            label = { Text("Paste VLESS URI, Hysteria2 URI, or raw sing-box JSON") },
+            enabled = !isConnected,
+        )
+        Button(
+            onClick = { onImport(input) },
+            enabled = !isConnected && input.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Text(text = "Validate and Store")
+        }
+        if (validationMessage.isNotBlank()) {
+            Text(
+                text = validationMessage,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (validationMessage.startsWith("Stored")) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        }
+
+        if (configs.isEmpty()) {
+            Text(
+                text = "No imported configs",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+            )
+        } else {
+            configs.forEach { config ->
+                ProxyConfigRow(
+                    config = config,
+                    active = config.id == activeConfig?.id,
+                    enabled = !isConnected,
+                    onSelect = onSelect,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProxyConfigRow(
+    config: ImportedProxyConfig,
+    active: Boolean,
+    enabled: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    LabCard(
+        title = config.name,
+        status = if (active) "Active" else config.type.shortLabel(),
+        detail = config.content.take(96),
+    ) {
+        OutlinedButton(
+            onClick = { onSelect(config.id) },
+            enabled = enabled && !active,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Text(text = if (active) "Selected" else "Use Config")
+        }
     }
 }
 
@@ -823,6 +956,14 @@ private fun NetworkMonitorSnapshot.timestampLabel(): String {
     return SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(checkedAtMillis))
 }
 
+private fun ProxyConfigType.shortLabel(): String {
+    return when (this) {
+        ProxyConfigType.VlessUri -> "VLESS"
+        ProxyConfigType.Hysteria2Uri -> "Hysteria2"
+        ProxyConfigType.SingBoxJson -> "JSON"
+    }
+}
+
 private fun List<DiagnosticEvent>.latestProtectExperimentResult(): ProtectExperimentResult {
     val latestProtectEvent = asReversed().firstOrNull {
         it.message.startsWith(ProtectExperimentDiagnosticName.ProtectExperimentStarted.eventName) ||
@@ -895,10 +1036,16 @@ private fun AegisNetAppPreview() {
         currentMode = MutableStateFlow(AppVpnMode.Diagnostics),
         activeBlockedAppCount = MutableStateFlow(0),
         lastFirewallResult = MutableStateFlow("Not run"),
+        lastRuntimeError = MutableStateFlow("None"),
         networkMonitorHistory = MutableStateFlow(emptyList()),
+        importedProxyConfigs = MutableStateFlow(emptyList()),
+        activeProxyConfig = MutableStateFlow(null),
+        proxyConfigValidationMessage = MutableStateFlow(""),
         onModeSelected = {},
         onFirewallProfileSelected = {},
         onFirewallPackageToggled = { _, _ -> },
+        onImportProxyConfig = {},
+        onSelectProxyConfig = {},
         onConnect = {},
         onDisconnect = {},
         onClearDiagnostics = {},

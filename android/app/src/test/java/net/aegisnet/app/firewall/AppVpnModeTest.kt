@@ -12,7 +12,12 @@ class AppVpnModeTest {
 
     @Test
     fun firewallModeHasUserFacingLabel() {
-        assertEquals("App Firewall", AppVpnMode.AppFirewall.label)
+        assertEquals("Local App Firewall", AppVpnMode.AppFirewall.label)
+    }
+
+    @Test
+    fun experimentalModesHaveUserFacingLabels() {
+        assertEquals("Network Monitor", AppVpnMode.NetworkMonitor.label)
+        assertEquals("Real Proxy Runtime Experimental", AppVpnMode.RealProxyRuntime.label)
     }
 }
-

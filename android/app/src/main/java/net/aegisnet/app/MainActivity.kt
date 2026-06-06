@@ -32,6 +32,9 @@ import net.aegisnet.app.networking.NetworkingLabRunner
 import net.aegisnet.app.networking.NetworkingLabStatus
 import net.aegisnet.app.networking.NetworkingLabTest
 import net.aegisnet.app.networking.NetworkingLabTestResult
+import net.aegisnet.app.runtime.ImportedProxyConfig
+import net.aegisnet.app.runtime.ProxyConfigStore
+import net.aegisnet.app.runtime.ProxyConfigValidator
 import net.aegisnet.app.ui.AegisNetApp
 import net.aegisnet.app.vpn.AegisVpnController
 import net.aegisnet.app.vpn.AegisVpnService
@@ -47,6 +50,11 @@ class MainActivity : ComponentActivity() {
     private val activeFirewallProfile = MutableStateFlow(FirewallProfile.Custom)
     private val networkMonitorHistory = MutableStateFlow<List<NetworkMonitorSnapshot>>(emptyList())
     private val selectedMode = MutableStateFlow(AppVpnMode.Diagnostics)
+    private lateinit var proxyConfigStore: ProxyConfigStore
+    private val proxyConfigValidator = ProxyConfigValidator()
+    private val importedProxyConfigs = MutableStateFlow<List<ImportedProxyConfig>>(emptyList())
+    private val activeProxyConfig = MutableStateFlow<ImportedProxyConfig?>(null)
+    private val proxyConfigValidationMessage = MutableStateFlow("")
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -67,6 +75,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         appFirewallSelectionStore = AppFirewallSelectionStore(this)
         installedAppsRepository = InstalledAppsRepository(this)
+        proxyConfigStore = ProxyConfigStore(this)
         appFirewallSelectionStore.initializeProfiles().forEach { profile ->
             AegisVpnController.addDiagnostic(
                 level = DiagnosticLevel.Info,
@@ -76,6 +85,7 @@ class MainActivity : ComponentActivity() {
         }
         activeFirewallProfile.value = appFirewallSelectionStore.loadActiveProfile()
         selectedFirewallPackages.value = appFirewallSelectionStore.load(activeFirewallProfile.value)
+        reloadProxyConfigs()
         refreshDeviceNetworkInfo()
         loadInstalledApps()
 
@@ -95,10 +105,16 @@ class MainActivity : ComponentActivity() {
                 currentMode = AegisVpnController.currentMode,
                 activeBlockedAppCount = AegisVpnController.activeBlockedAppCount,
                 lastFirewallResult = AegisVpnController.lastFirewallResult,
+                lastRuntimeError = AegisVpnController.lastRuntimeError,
                 networkMonitorHistory = networkMonitorHistory,
+                importedProxyConfigs = importedProxyConfigs,
+                activeProxyConfig = activeProxyConfig,
+                proxyConfigValidationMessage = proxyConfigValidationMessage,
                 onModeSelected = ::selectMode,
                 onFirewallProfileSelected = ::selectFirewallProfile,
                 onFirewallPackageToggled = ::toggleFirewallPackage,
+                onImportProxyConfig = ::importProxyConfig,
+                onSelectProxyConfig = ::selectProxyConfig,
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,
                 onClearDiagnostics = AegisVpnController::clearDiagnostics,
@@ -123,6 +139,21 @@ class MainActivity : ComponentActivity() {
                 source = DiagnosticSource.Ui,
                 message = "firewall_error reason=no selected apps",
             )
+            return
+        }
+
+        if (selectedMode.value == AppVpnMode.RealProxyRuntime && activeProxyConfig.value == null) {
+            proxyConfigValidationMessage.value = "Import and select a proxy config before connecting"
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Warning,
+                source = DiagnosticSource.Ui,
+                message = "real_proxy_error reason=no active config",
+            )
+            return
+        }
+
+        if (selectedMode.value == AppVpnMode.NetworkMonitor) {
+            runFullNetworkCheck()
             return
         }
 
@@ -161,6 +192,46 @@ class MainActivity : ComponentActivity() {
     private fun selectMode(mode: AppVpnMode) {
         selectedMode.value = mode
         AegisVpnController.selectMode(mode)
+    }
+
+    private fun importProxyConfig(rawInput: String) {
+        val result = proxyConfigValidator.validate(rawInput)
+        val config = result.config
+        if (config == null) {
+            proxyConfigValidationMessage.value = result.error ?: "Config validation failed"
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Warning,
+                source = DiagnosticSource.Ui,
+                message = "proxy_config_import_failed reason=${proxyConfigValidationMessage.value}",
+            )
+            return
+        }
+
+        proxyConfigStore.save(config)
+        reloadProxyConfigs()
+        proxyConfigValidationMessage.value = "Stored ${config.name} (${config.type.label})"
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.Ui,
+            message = "proxy_config_imported id=${config.id} type=${config.type.name}",
+        )
+    }
+
+    private fun selectProxyConfig(configId: String) {
+        proxyConfigStore.setActive(configId)
+        reloadProxyConfigs()
+        val active = activeProxyConfig.value ?: return
+        proxyConfigValidationMessage.value = "Selected ${active.name} (${active.type.label})"
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.Ui,
+            message = "proxy_config_selected id=${active.id} type=${active.type.name}",
+        )
+    }
+
+    private fun reloadProxyConfigs() {
+        importedProxyConfigs.value = proxyConfigStore.loadAll()
+        activeProxyConfig.value = proxyConfigStore.loadActive()
     }
 
     private fun selectFirewallProfile(profile: FirewallProfile) {
