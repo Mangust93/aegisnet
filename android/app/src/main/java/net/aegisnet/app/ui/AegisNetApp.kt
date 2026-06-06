@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.StateFlow
 import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.ProtectExperimentDiagnosticName
 import net.aegisnet.app.firewall.AppVpnMode
+import net.aegisnet.app.firewall.FirewallProfile
 import net.aegisnet.app.firewall.InstalledAppInfo
 import net.aegisnet.app.networking.DeviceNetworkInfo
 import net.aegisnet.app.networking.NetworkingLabTest
@@ -77,10 +78,12 @@ fun AegisNetApp(
     selectedMode: StateFlow<AppVpnMode>,
     installedApps: StateFlow<List<InstalledAppInfo>>,
     selectedFirewallPackages: StateFlow<Set<String>>,
+    activeFirewallProfile: StateFlow<FirewallProfile>,
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
     onModeSelected: (AppVpnMode) -> Unit,
+    onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -105,10 +108,12 @@ fun AegisNetApp(
                 selectedMode = selectedMode,
                 installedApps = installedApps,
                 selectedFirewallPackages = selectedFirewallPackages,
+                activeFirewallProfile = activeFirewallProfile,
                 currentMode = currentMode,
                 activeBlockedAppCount = activeBlockedAppCount,
                 lastFirewallResult = lastFirewallResult,
                 onModeSelected = onModeSelected,
+                onFirewallProfileSelected = onFirewallProfileSelected,
                 onFirewallPackageToggled = onFirewallPackageToggled,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
@@ -136,10 +141,12 @@ private fun ConnectionShell(
     selectedMode: StateFlow<AppVpnMode>,
     installedApps: StateFlow<List<InstalledAppInfo>>,
     selectedFirewallPackages: StateFlow<Set<String>>,
+    activeFirewallProfile: StateFlow<FirewallProfile>,
     currentMode: StateFlow<AppVpnMode>,
     activeBlockedAppCount: StateFlow<Int>,
     lastFirewallResult: StateFlow<String>,
     onModeSelected: (AppVpnMode) -> Unit,
+    onFirewallProfileSelected: (FirewallProfile) -> Unit,
     onFirewallPackageToggled: (String, Boolean) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -159,6 +166,7 @@ private fun ConnectionShell(
     val currentSelectedMode by selectedMode.collectAsState()
     val currentInstalledApps by installedApps.collectAsState()
     val currentSelectedFirewallPackages by selectedFirewallPackages.collectAsState()
+    val currentActiveFirewallProfile by activeFirewallProfile.collectAsState()
     val currentModeValue by currentMode.collectAsState()
     val currentActiveBlockedAppCount by activeBlockedAppCount.collectAsState()
     val currentLastFirewallResult by lastFirewallResult.collectAsState()
@@ -228,13 +236,17 @@ private fun ConnectionShell(
             currentMode = currentModeValue,
             activeBlockedAppCount = currentActiveBlockedAppCount,
             lastFirewallResult = currentLastFirewallResult,
+            activeFirewallProfile = currentActiveFirewallProfile,
+            selectedFirewallPackageCount = currentSelectedFirewallPackages.size,
         )
 
         if (currentSelectedMode == AppVpnMode.AppFirewall) {
             AppFirewallScreen(
                 apps = currentInstalledApps,
                 selectedPackages = currentSelectedFirewallPackages,
+                activeProfile = currentActiveFirewallProfile,
                 isConnected = isConnected,
+                onProfileSelected = onFirewallProfileSelected,
                 onPackageToggled = onFirewallPackageToggled,
             )
         } else {
@@ -287,10 +299,14 @@ private fun DeviceSessionInfo(
     currentMode: AppVpnMode,
     activeBlockedAppCount: Int,
     lastFirewallResult: String,
+    activeFirewallProfile: FirewallProfile,
+    selectedFirewallPackageCount: Int,
 ) {
     SectionCard(title = "Device / Network") {
         InfoRow(title = "VPN state", value = vpnState.name)
         InfoRow(title = "Current mode", value = currentMode.label)
+        InfoRow(title = "Active firewall profile", value = activeFirewallProfile.label)
+        InfoRow(title = "Selected app count", value = selectedFirewallPackageCount.toString())
         InfoRow(title = "Active blocked apps", value = activeBlockedAppCount.toString())
         InfoRow(title = "Last firewall result", value = lastFirewallResult)
         InfoRow(title = "Runtime state", value = runtimeState.name)
@@ -347,7 +363,9 @@ private fun ModeSelector(
 private fun AppFirewallScreen(
     apps: List<InstalledAppInfo>,
     selectedPackages: Set<String>,
+    activeProfile: FirewallProfile,
     isConnected: Boolean,
+    onProfileSelected: (FirewallProfile) -> Unit,
     onPackageToggled: (String, Boolean) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -368,6 +386,12 @@ private fun AppFirewallScreen(
             color = MaterialTheme.colorScheme.error,
             fontWeight = FontWeight.SemiBold,
         )
+        ProfileSelector(
+            activeProfile = activeProfile,
+            enabled = !isConnected,
+            onProfileSelected = onProfileSelected,
+        )
+        InfoRow(title = "Active profile", value = activeProfile.label)
         InfoRow(title = "Selected apps", value = selectedPackages.size.toString())
         OutlinedTextField(
             value = query,
@@ -400,6 +424,36 @@ private fun AppFirewallScreen(
                         },
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileSelector(
+    activeProfile: FirewallProfile,
+    enabled: Boolean,
+    onProfileSelected: (FirewallProfile) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FirewallProfile.entries.forEach { profile ->
+            val selected = activeProfile == profile
+            val colors = if (selected) {
+                ButtonDefaults.buttonColors()
+            } else {
+                ButtonDefaults.outlinedButtonColors()
+            }
+            OutlinedButton(
+                onClick = { onProfileSelected(profile) },
+                enabled = enabled || selected,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                colors = colors,
+            ) {
+                Text(text = profile.label)
             }
         }
     }
@@ -775,10 +829,12 @@ private fun AegisNetAppPreview() {
         selectedMode = MutableStateFlow(AppVpnMode.Diagnostics),
         installedApps = MutableStateFlow(emptyList()),
         selectedFirewallPackages = MutableStateFlow(emptySet()),
+        activeFirewallProfile = MutableStateFlow(FirewallProfile.Custom),
         currentMode = MutableStateFlow(AppVpnMode.Diagnostics),
         activeBlockedAppCount = MutableStateFlow(0),
         lastFirewallResult = MutableStateFlow("Not run"),
         onModeSelected = {},
+        onFirewallProfileSelected = {},
         onFirewallPackageToggled = { _, _ -> },
         onConnect = {},
         onDisconnect = {},

@@ -21,6 +21,7 @@ import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
 import net.aegisnet.app.firewall.AppFirewallSelectionStore
 import net.aegisnet.app.firewall.AppVpnMode
+import net.aegisnet.app.firewall.FirewallProfile
 import net.aegisnet.app.firewall.InstalledAppInfo
 import net.aegisnet.app.firewall.InstalledAppsRepository
 import net.aegisnet.app.networking.DeviceNetworkInfo
@@ -39,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var installedAppsRepository: InstalledAppsRepository
     private val installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
     private val selectedFirewallPackages = MutableStateFlow<Set<String>>(emptySet())
+    private val activeFirewallProfile = MutableStateFlow(FirewallProfile.Custom)
     private val selectedMode = MutableStateFlow(AppVpnMode.Diagnostics)
     private val vpnConsentLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -60,7 +62,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         appFirewallSelectionStore = AppFirewallSelectionStore(this)
         installedAppsRepository = InstalledAppsRepository(this)
-        selectedFirewallPackages.value = appFirewallSelectionStore.load()
+        appFirewallSelectionStore.initializeProfiles().forEach { profile ->
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Info,
+                source = DiagnosticSource.Ui,
+                message = "firewall_profile_created profile=${profile.name}",
+            )
+        }
+        activeFirewallProfile.value = appFirewallSelectionStore.loadActiveProfile()
+        selectedFirewallPackages.value = appFirewallSelectionStore.load(activeFirewallProfile.value)
         refreshDeviceNetworkInfo()
         loadInstalledApps()
 
@@ -76,10 +86,12 @@ class MainActivity : ComponentActivity() {
                 selectedMode = selectedMode,
                 installedApps = installedApps,
                 selectedFirewallPackages = selectedFirewallPackages,
+                activeFirewallProfile = activeFirewallProfile,
                 currentMode = AegisVpnController.currentMode,
                 activeBlockedAppCount = AegisVpnController.activeBlockedAppCount,
                 lastFirewallResult = AegisVpnController.lastFirewallResult,
                 onModeSelected = ::selectMode,
+                onFirewallProfileSelected = ::selectFirewallProfile,
                 onFirewallPackageToggled = ::toggleFirewallPackage,
                 onConnect = ::connect,
                 onDisconnect = ::disconnect,
@@ -128,12 +140,13 @@ class MainActivity : ComponentActivity() {
         val transition = AegisVpnController.consentPrepared()
         if (!transition.changed) return
 
+        val activePackages = appFirewallSelectionStore.load(activeFirewallProfile.value)
         val intent = Intent(this, AegisVpnService::class.java)
             .setAction(AegisVpnService.ACTION_START)
             .putExtra(AegisVpnService.EXTRA_MODE, selectedMode.value.name)
             .putStringArrayListExtra(
                 AegisVpnService.EXTRA_SELECTED_PACKAGES,
-                ArrayList(selectedFirewallPackages.value.sorted()),
+                ArrayList(activePackages.sorted()),
             )
         startForegroundService(intent)
     }
@@ -143,6 +156,19 @@ class MainActivity : ComponentActivity() {
         AegisVpnController.selectMode(mode)
     }
 
+    private fun selectFirewallProfile(profile: FirewallProfile) {
+        activeFirewallProfile.value = profile
+        appFirewallSelectionStore.saveActiveProfile(profile)
+        val packages = appFirewallSelectionStore.load(profile)
+        selectedFirewallPackages.value = packages
+        AegisVpnController.updateLastFirewallResult("${profile.label} profile selected (${packages.size} app(s))")
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Info,
+            source = DiagnosticSource.Ui,
+            message = "firewall_profile_switched profile=${profile.name} selectedAppCount=${packages.size}",
+        )
+    }
+
     private fun toggleFirewallPackage(packageName: String, selected: Boolean) {
         val updated = if (selected) {
             selectedFirewallPackages.value + packageName
@@ -150,12 +176,12 @@ class MainActivity : ComponentActivity() {
             selectedFirewallPackages.value - packageName
         }
         selectedFirewallPackages.value = updated
-        appFirewallSelectionStore.save(updated)
-        AegisVpnController.updateLastFirewallResult("${updated.size} app(s) selected")
+        appFirewallSelectionStore.save(activeFirewallProfile.value, updated)
+        AegisVpnController.updateLastFirewallResult("${activeFirewallProfile.value.label}: ${updated.size} app(s) selected")
         AegisVpnController.addDiagnostic(
             level = DiagnosticLevel.Info,
             source = DiagnosticSource.Ui,
-            message = "firewall_selected_apps_updated count=${updated.size}",
+            message = "firewall_profile_updated profile=${activeFirewallProfile.value.name} selectedAppCount=${updated.size}",
         )
     }
 
@@ -267,4 +293,5 @@ class MainActivity : ComponentActivity() {
             }
         }.getOrDefault(0L)
     }
+
 }
