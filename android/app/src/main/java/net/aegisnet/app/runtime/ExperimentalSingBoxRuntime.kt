@@ -49,6 +49,7 @@ class ExperimentalSingBoxRuntime(
             ProxyConfigType.VlessUri,
             ProxyConfigType.Hysteria2Uri,
             -> {
+                closeRejectedTunFd(config, tunFd)
                 fail("${proxyConfig.type.label} import is stored, but URI-to-sing-box conversion is not implemented yet")
                 return
             }
@@ -64,13 +65,28 @@ class ExperimentalSingBoxRuntime(
 
         mutableState.value = RuntimeState.Stopping
         emit(DiagnosticLevel.Info, "experimental_runtime_stopping")
-        val closedMethods = withContext(Dispatchers.IO) {
-            bridge.stop()
+        val stopResult = runCatching {
+            withContext(Dispatchers.IO) {
+                bridge.stop()
+            }
+        }.getOrElse { error ->
+            emit(
+                DiagnosticLevel.Error,
+                "sfa_libbox_command_client_stop_failed reason=${error.message ?: error.javaClass.simpleName}",
+            )
+            SfaLibboxRuntimeBridge.StopResult(
+                failures = listOf(error.message ?: error.javaClass.simpleName),
+            )
         }
-        if (closedMethods.isEmpty()) {
+        if (stopResult.isEmpty()) {
             emit(DiagnosticLevel.Debug, "sfa_libbox_command_client_stop_skipped")
         } else {
-            emit(DiagnosticLevel.Info, "sfa_libbox_command_client_stopped methods=${closedMethods.joinToString(",")}")
+            if (stopResult.calledMethods.isNotEmpty()) {
+                emit(DiagnosticLevel.Info, "sfa_libbox_command_client_stopped methods=${stopResult.calledMethods.joinToString(",")}")
+            }
+            stopResult.failures.forEach { failure ->
+                emit(DiagnosticLevel.Error, "sfa_libbox_command_client_stop_method_failed reason=$failure")
+            }
         }
         mutableState.value = RuntimeState.Stopped
         emit(DiagnosticLevel.Info, "experimental_runtime_stopped")
@@ -83,6 +99,7 @@ class ExperimentalSingBoxRuntime(
     ) {
         val missingRequirements = bridge.missingRequirements()
         if (missingRequirements.isNotEmpty()) {
+            closeRejectedTunFd(config, tunFd)
             fail(
                 "SFA libbox runtime artifact missing: expected Java bindings at " +
                     "${SfaLibboxRuntimeBridge.LOCAL_JAVA_PATH} and native libraries at " +
@@ -99,6 +116,7 @@ class ExperimentalSingBoxRuntime(
         val workingPath = config.runtimeWorkingPath
         val tempPath = config.runtimeTempPath
         if (basePath == null || workingPath == null || tempPath == null) {
+            closeRejectedTunFd(config, tunFd)
             fail("SFA libbox runtime paths are unavailable")
             return
         }
@@ -121,6 +139,7 @@ class ExperimentalSingBoxRuntime(
                 )
             }
         }.onFailure { error ->
+            closeRejectedTunFd(config, tunFd)
             fail("SFA libbox runtime start failed: ${error.message ?: error.javaClass.simpleName}")
             return
         }
@@ -139,6 +158,23 @@ class ExperimentalSingBoxRuntime(
         val workingDirectory = File(workingPath)
         workingDirectory.mkdirs()
         File(workingDirectory, SING_BOX_CONFIG_FILE_NAME).writeText(content)
+    }
+
+    private suspend fun closeRejectedTunFd(
+        config: RuntimeConfig,
+        tunFd: Int,
+    ) {
+        val closer = config.tunFdCloser ?: return
+        runCatching {
+            closer.close(tunFd)
+        }.onSuccess {
+            emit(DiagnosticLevel.Debug, "sfa_libbox_rejected_tun_fd_closed fd=$tunFd")
+        }.onFailure { error ->
+            emit(
+                DiagnosticLevel.Error,
+                "sfa_libbox_rejected_tun_fd_close_failed reason=${error.message ?: error.javaClass.simpleName}",
+            )
+        }
     }
 
     private suspend fun fail(message: String) {

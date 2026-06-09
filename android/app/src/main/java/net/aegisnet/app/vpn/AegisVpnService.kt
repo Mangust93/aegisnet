@@ -143,6 +143,7 @@ class AegisVpnService : VpnService() {
             runtime = dummyRuntime,
             runtimeName = "Dummy runtime",
             proxyConfig = null,
+            transferDuplicateTunFd = false,
         )
     }
 
@@ -239,6 +240,7 @@ class AegisVpnService : VpnService() {
             runtime = realRuntime,
             runtimeName = "Experimental real runtime",
             proxyConfig = proxyConfig,
+            transferDuplicateTunFd = true,
         )
     }
 
@@ -309,6 +311,7 @@ class AegisVpnService : VpnService() {
         runtime: NetworkRuntime,
         runtimeName: String,
         proxyConfig: ImportedProxyConfig?,
+        transferDuplicateTunFd: Boolean,
     ) {
         val currentInterface = vpnInterface ?: run {
             failAndStop("VPN interface was closed before runtime start")
@@ -319,10 +322,16 @@ class AegisVpnService : VpnService() {
         runtimeStartJob?.cancel()
         runtimeStartJob = serviceScope.launch {
             try {
+                val runtimeTunFd = if (transferDuplicateTunFd) {
+                    duplicateTunFdForRuntime(currentInterface)
+                } else {
+                    currentInterface.fd
+                }
                 runtime.start(
                     RuntimeConfig(
                         sessionId = sessionId,
-                        tunFd = currentInterface.fd,
+                        tunFd = runtimeTunFd,
+                        tunFdCloser = if (transferDuplicateTunFd) ::closeDetachedTunFd else null,
                         proxyConfig = proxyConfig,
                         runtimeBasePath = filesDir.resolve("sfa-libbox/base").absolutePath,
                         runtimeWorkingPath = filesDir.resolve("sfa-libbox/working").absolutePath,
@@ -335,7 +344,7 @@ class AegisVpnService : VpnService() {
                 }
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: RuntimeException) {
+            } catch (error: Exception) {
                 failAndStop("$runtimeName error: ${error.message ?: error.javaClass.simpleName}")
                 return@launch
             }
@@ -349,11 +358,33 @@ class AegisVpnService : VpnService() {
         }
     }
 
+    private fun duplicateTunFdForRuntime(vpnInterface: ParcelFileDescriptor): Int {
+        val duplicatedFd = ParcelFileDescriptor.dup(vpnInterface.fileDescriptor).detachFd()
+        AegisVpnController.addDiagnostic(
+            level = DiagnosticLevel.Debug,
+            source = DiagnosticSource.Vpn,
+            message = "runtime_tun_fd_duplicated fd=$duplicatedFd",
+        )
+        return duplicatedFd
+    }
+
+    private fun closeDetachedTunFd(fd: Int) {
+        ParcelFileDescriptor.adoptFd(fd).close()
+    }
+
     private fun stopRuntimeBlocking() {
         runtimeStartJob?.cancel()
         runtimeStartJob = null
-        runBlocking {
-            activeRuntime.stop()
+        runCatching {
+            runBlocking {
+                activeRuntime.stop()
+            }
+        }.onFailure { error ->
+            AegisVpnController.addDiagnostic(
+                level = DiagnosticLevel.Error,
+                source = DiagnosticSource.Vpn,
+                message = "Runtime stop cleanup failed: ${error.message ?: error.javaClass.simpleName}",
+            )
         }
         AegisVpnController.updateRuntimeState(activeRuntime.state.value)
     }

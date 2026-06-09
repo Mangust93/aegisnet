@@ -31,23 +31,42 @@ internal class SfaLibboxRuntimeBridge(
         val client = libboxClass.findStaticMethod("newStandaloneCommandClient").invoke(null)
             ?: error("Libbox.newStandaloneCommandClient returned null")
 
-        client.javaClass.findInstanceMethod("connectWithFD", Int::class.javaPrimitiveType ?: Integer.TYPE)
-            .invoke(client, tunFd)
         commandClient = client
+        runCatching {
+            client.javaClass.findInstanceMethod("connectWithFD", Int::class.javaPrimitiveType ?: Integer.TYPE)
+                .invoke(client, tunFd)
+        }.onFailure { error ->
+            stop()
+            throw error
+        }
     }
 
-    fun stop(): List<String> {
-        val client = commandClient ?: return emptyList()
+    fun isClientTracked(): Boolean {
+        return commandClient != null
+    }
+
+    fun stop(): StopResult {
+        val client = commandClient ?: return StopResult()
         commandClient = null
         val called = mutableListOf<String>()
+        val failures = mutableListOf<String>()
         STOP_METHODS.forEach { methodName ->
             val method = client.javaClass.methods.firstOrNull { method ->
                 method.name == methodName && method.parameterTypes.isEmpty()
-            } ?: return@forEach
-            method.invoke(client)
-            called += methodName
+            }
+            if (method == null) {
+                failures += "$methodName:missing"
+                return@forEach
+            }
+            runCatching {
+                method.invoke(client)
+            }.onSuccess {
+                called += methodName
+            }.onFailure { error ->
+                failures += "$methodName:${error.message ?: error.javaClass.simpleName}"
+            }
         }
-        return called
+        return StopResult(calledMethods = called, failures = failures)
     }
 
     private fun loadClass(className: String): Class<*> {
@@ -108,5 +127,14 @@ internal class SfaLibboxRuntimeBridge(
         )
 
         private val STOP_METHODS = listOf("disconnect", "serviceClose")
+    }
+
+    data class StopResult(
+        val calledMethods: List<String> = emptyList(),
+        val failures: List<String> = emptyList(),
+    ) {
+        fun isEmpty(): Boolean {
+            return calledMethods.isEmpty() && failures.isEmpty()
+        }
     }
 }

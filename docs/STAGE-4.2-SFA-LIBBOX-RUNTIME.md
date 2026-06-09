@@ -34,7 +34,12 @@ If you extract binding bytecode instead of source, place the local jar here:
 android/local-libs/sfa-libbox/classes.jar
 ```
 
-The Android build consumes `sfa-libbox/java`, `sfa-libbox/jniLibs`, and optional `sfa-libbox/classes.jar` when present. Default builds continue without these files.
+The Android build consumes `sfa-libbox/jniLibs` when present. For Java bindings, use exactly one local form:
+
+- preferred: `sfa-libbox/classes.jar`
+- fallback: `sfa-libbox/java`
+
+When `classes.jar` exists, Gradle does not compile `sfa-libbox/java`, avoiding duplicate binding classes. Default builds continue without these files.
 
 ## Required Extracted Native Libraries
 
@@ -103,7 +108,7 @@ Copy-Item -Recurse C:\tmp\sfa-apk\jadx\sources\io\nekohasekai\libbox android\loc
 Copy-Item -Recurse C:\tmp\sfa-apk\jadx\sources\go\Seq.java android\local-libs\sfa-libbox\java\go\Seq.java
 ```
 
-If the decompiled Java does not compile cleanly, build a local `classes.jar` from the APK DEX with a vetted dex conversion tool and place it at:
+Prefer a vetted local `classes.jar` from the APK DEX when possible. If decompiled Java is used as a fallback, do not keep `classes.jar` in the same directory unless you intend Gradle to ignore the source copy. Place the jar at:
 
 ```powershell
 android\local-libs\sfa-libbox\classes.jar

@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val localLibboxAar = rootProject.layout.projectDirectory.file("local-libs/libbox.aar").asFile
+val localSfaLibboxClassesJar = rootProject.layout.projectDirectory.file("local-libs/sfa-libbox/classes.jar").asFile
+
 android {
     namespace = "net.aegisnet.app"
     compileSdk = 35
@@ -22,7 +25,9 @@ android {
 
     sourceSets {
         getByName("main") {
-            java.srcDir(rootProject.layout.projectDirectory.dir("local-libs/sfa-libbox/java"))
+            if (!localSfaLibboxClassesJar.isFile) {
+                java.srcDir(rootProject.layout.projectDirectory.dir("local-libs/sfa-libbox/java"))
+            }
             jniLibs.srcDir(rootProject.layout.projectDirectory.dir("local-libs/sfa-libbox/jniLibs"))
         }
     }
@@ -38,9 +43,6 @@ kotlin {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
-
-val localLibboxAar = rootProject.layout.projectDirectory.file("local-libs/libbox.aar").asFile
-val localSfaLibboxClassesJar = rootProject.layout.projectDirectory.file("local-libs/sfa-libbox/classes.jar").asFile
 
 dependencies {
     if (localLibboxAar.isFile) {

@@ -24,6 +24,7 @@ class Libbox private constructor() {
         @JvmStatic
         fun reset() {
             lastSetupOptions = null
+            CommandClient.resetBehavior()
         }
     }
 }
