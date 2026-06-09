@@ -1,9 +1,12 @@
 package net.aegisnet.app.runtime
 
+import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 import net.aegisnet.app.diagnostics.DiagnosticEvent
 import net.aegisnet.app.diagnostics.DiagnosticLevel
 import net.aegisnet.app.diagnostics.DiagnosticSource
@@ -36,7 +39,8 @@ class ExperimentalSingBoxRuntime(
             return
         }
 
-        if (config.tunFd == null) {
+        val tunFd = config.tunFd
+        if (tunFd == null) {
             fail("VPN TUN file descriptor is unavailable")
             return
         }
@@ -48,7 +52,7 @@ class ExperimentalSingBoxRuntime(
                 fail("${proxyConfig.type.label} import is stored, but URI-to-sing-box conversion is not implemented yet")
                 return
             }
-            ProxyConfigType.SingBoxJson -> startRawSingBoxConfig(proxyConfig)
+            ProxyConfigType.SingBoxJson -> startRawSingBoxConfig(config, proxyConfig, tunFd)
         }
     }
 
@@ -60,18 +64,42 @@ class ExperimentalSingBoxRuntime(
 
         mutableState.value = RuntimeState.Stopping
         emit(DiagnosticLevel.Info, "experimental_runtime_stopping")
+        val closedMethods = withContext(Dispatchers.IO) {
+            bridge.stop()
+        }
+        if (closedMethods.isEmpty()) {
+            emit(DiagnosticLevel.Debug, "sfa_libbox_command_client_stop_skipped")
+        } else {
+            emit(DiagnosticLevel.Info, "sfa_libbox_command_client_stopped methods=${closedMethods.joinToString(",")}")
+        }
         mutableState.value = RuntimeState.Stopped
         emit(DiagnosticLevel.Info, "experimental_runtime_stopped")
     }
 
-    private suspend fun startRawSingBoxConfig(proxyConfig: ImportedProxyConfig) {
-        val bindingClass = findLibboxClass()
-        if (bindingClass == null) {
+    private suspend fun startRawSingBoxConfig(
+        config: RuntimeConfig,
+        proxyConfig: ImportedProxyConfig,
+        tunFd: Int,
+    ) {
+        val missingRequirements = bridge.missingRequirements()
+        if (missingRequirements.isNotEmpty()) {
             fail(
-                "libbox artifact missing: expected $EXPECTED_LIBBOX_AAR_PATH. " +
-                    "Next setup step: build or obtain a vetted Android libbox AAR, place it at that path, " +
-                    "then rebuild and map the packaged libbox API to ExperimentalSingBoxRuntime start/stop calls.",
+                "SFA libbox runtime artifact missing: expected Java bindings at " +
+                    "${SfaLibboxRuntimeBridge.LOCAL_JAVA_PATH} and native libraries at " +
+                    "${SfaLibboxRuntimeBridge.LOCAL_JNI_LIBS_PATH}. Missing classes: " +
+                    missingRequirements.joinToString(", ") +
+                    ". Next setup step: extract the official SFA APK runtime into " +
+                    SfaLibboxRuntimeBridge.LOCAL_ARTIFACT_ROOT +
+                    " and rebuild.",
             )
+            return
+        }
+
+        val basePath = config.runtimeBasePath
+        val workingPath = config.runtimeWorkingPath
+        val tempPath = config.runtimeTempPath
+        if (basePath == null || workingPath == null || tempPath == null) {
+            fail("SFA libbox runtime paths are unavailable")
             return
         }
 
@@ -79,15 +107,38 @@ class ExperimentalSingBoxRuntime(
             DiagnosticLevel.Debug,
             "experimental_runtime_config_ready id=${proxyConfig.id} type=${proxyConfig.type.name}",
         )
-        fail(
-            "Found ${bindingClass.name}, but this branch does not yet map the packaged binding API to start/stop calls.",
+
+        runCatching {
+            withContext(Dispatchers.IO) {
+                writeRuntimeConfig(workingPath, proxyConfig.content)
+                File(basePath).mkdirs()
+                File(tempPath).mkdirs()
+                bridge.start(
+                    basePath = basePath,
+                    workingPath = workingPath,
+                    tempPath = tempPath,
+                    tunFd = tunFd,
+                )
+            }
+        }.onFailure { error ->
+            fail("SFA libbox runtime start failed: ${error.message ?: error.javaClass.simpleName}")
+            return
+        }
+
+        mutableState.value = RuntimeState.Running
+        emit(
+            DiagnosticLevel.Info,
+            "sfa_libbox_runtime_connected tunFd=$tunFd config=${proxyConfig.name}",
         )
     }
 
-    private fun findLibboxClass(): Class<*>? {
-        return LIBBOX_CLASS_CANDIDATES.firstNotNullOfOrNull { className ->
-            runCatching { Class.forName(className, false, classLoader) }.getOrNull()
-        }
+    private fun writeRuntimeConfig(
+        workingPath: String,
+        content: String,
+    ) {
+        val workingDirectory = File(workingPath)
+        workingDirectory.mkdirs()
+        File(workingDirectory, SING_BOX_CONFIG_FILE_NAME).writeText(content)
     }
 
     private suspend fun fail(message: String) {
@@ -108,13 +159,9 @@ class ExperimentalSingBoxRuntime(
         )
     }
 
-    private companion object {
-        const val EXPECTED_LIBBOX_AAR_PATH = "android/local-libs/libbox.aar"
+    private val bridge = SfaLibboxRuntimeBridge(classLoader)
 
-        val LIBBOX_CLASS_CANDIDATES = listOf(
-            "io.nekohasekai.libbox.Libbox",
-            "io.nekohasekai.libbox.BoxService",
-            "libbox.Libbox",
-        )
+    private companion object {
+        const val SING_BOX_CONFIG_FILE_NAME = "config.json"
     }
 }

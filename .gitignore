@@ -4,6 +4,7 @@ build/
 local.properties
 *.iml
 android/local-libs/*.aar
+android/local-libs/sfa-libbox/
 
 # IntelliJ / Android Studio
 .idea/

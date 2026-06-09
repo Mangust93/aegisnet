@@ -324,6 +324,9 @@ class AegisVpnService : VpnService() {
                         sessionId = sessionId,
                         tunFd = currentInterface.fd,
                         proxyConfig = proxyConfig,
+                        runtimeBasePath = filesDir.resolve("sfa-libbox/base").absolutePath,
+                        runtimeWorkingPath = filesDir.resolve("sfa-libbox/working").absolutePath,
+                        runtimeTempPath = cacheDir.resolve("sfa-libbox/temp").absolutePath,
                     ),
                 )
                 if (vpnInterface != null && runtime.state.value == RuntimeState.Running) {
