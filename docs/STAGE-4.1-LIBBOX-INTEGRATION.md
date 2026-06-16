@@ -10,17 +10,18 @@ Current app adapter:
 - Service caller: `net.aegisnet.app.vpn.AegisVpnService`
 - Runtime contract: `net.aegisnet.app.runtime.NetworkRuntime`
 - Config carrier: `net.aegisnet.app.runtime.RuntimeConfig`
-- Expected class candidates currently probed by reflection:
+- Expected SFA-shaped classes currently probed by reflection:
   - `io.nekohasekai.libbox.Libbox`
-  - `io.nekohasekai.libbox.BoxService`
-  - `libbox.Libbox`
+  - `io.nekohasekai.libbox.SetupOptions`
+  - `io.nekohasekai.libbox.CommandClient`
+  - `go.Seq`
 
 ## Local Artifact Convention
 
 Place a locally built or otherwise vetted Android libbox artifact at:
 
 ```text
-android/local-libs/libbox.aar
+android/local-libs/libbox/libbox.aar
 ```
 
 The AAR is intentionally ignored by git. Do not commit the binary artifact unless there is an explicit licensing and provenance justification recorded in the repository.
@@ -45,8 +46,8 @@ gomobile init
 5. Copy the produced AAR into this repo:
 
 ```bash
-mkdir -p /mnt/c/Users/melch/aegisnet/android/local-libs
-cp /path/to/libbox.aar /mnt/c/Users/melch/aegisnet/android/local-libs/libbox.aar
+mkdir -p /mnt/c/Users/melch/aegisnet/android/local-libs/libbox
+cp /path/to/libbox.aar /mnt/c/Users/melch/aegisnet/android/local-libs/libbox/libbox.aar
 ```
 
 6. Rebuild the Android app from Windows PowerShell:
@@ -63,7 +64,7 @@ cd C:\Users\melch\aegisnet\android
 From `android/`, validate the no-artifact path:
 
 ```powershell
-Test-Path .\local-libs\libbox.aar
+Test-Path .\local-libs\libbox\libbox.aar
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:lintDebug
 .\gradlew.bat :app:assembleDebug
@@ -71,10 +72,10 @@ Test-Path .\local-libs\libbox.aar
 
 `Test-Path` should return `False` for the default repository state.
 
-After placing `android/local-libs/libbox.aar`, validate the optional artifact path:
+After placing `android/local-libs/libbox/libbox.aar`, validate the optional artifact path:
 
 ```powershell
-Test-Path .\local-libs\libbox.aar
+Test-Path .\local-libs\libbox\libbox.aar
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:lintDebug
 .\gradlew.bat :app:assembleDebug

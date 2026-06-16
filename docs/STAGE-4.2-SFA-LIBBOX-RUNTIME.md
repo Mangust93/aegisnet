@@ -4,6 +4,10 @@
 
 Use the official SFA Android libbox runtime shape for the experimental Real Proxy Runtime mode without committing GPL binaries or pretending runtime startup succeeds.
 
+This stage is now historical. SFA APK extraction was an exploratory path used to identify the Android libbox API shape. The canonical runtime artifact for current work is `android/local-libs/libbox/libbox.aar`, documented in `docs/STAGE-4.3-LIBBOX-AAR-RUNTIME.md`.
+
+Do not use `android/local-libs/sfa-libbox/java`, `android/local-libs/sfa-libbox/classes.jar`, or `android/local-libs/sfa-libbox/jniLibs` as primary Gradle inputs. Decompiled Java sources and split native libraries can create duplicate class risk and do not represent the target AAR workflow.
+
 This stage targets the SagerNet/sing-box release artifact:
 
 ```text

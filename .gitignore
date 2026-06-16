@@ -4,6 +4,10 @@ build/
 local.properties
 *.iml
 android/local-libs/*.aar
+android/local-libs/**/*.aar
+android/local-libs/**/*.apk
+android/local-libs/**/classes.jar
+android/local-libs/**/*.so
 android/local-libs/sfa-libbox/
 
 # IntelliJ / Android Studio

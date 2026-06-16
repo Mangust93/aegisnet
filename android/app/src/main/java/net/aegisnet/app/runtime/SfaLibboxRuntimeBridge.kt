@@ -112,9 +112,8 @@ internal class SfaLibboxRuntimeBridge(
     }
 
     companion object {
-        const val LOCAL_ARTIFACT_ROOT = "android/local-libs/sfa-libbox"
-        const val LOCAL_JAVA_PATH = "$LOCAL_ARTIFACT_ROOT/java"
-        const val LOCAL_JNI_LIBS_PATH = "$LOCAL_ARTIFACT_ROOT/jniLibs"
+        const val LOCAL_AAR_PATH = "android/local-libs/libbox/libbox.aar"
+        const val MISSING_AAR_MESSAGE = "libbox.aar missing at $LOCAL_AAR_PATH"
         const val LIBBOX_CLASS = "io.nekohasekai.libbox.Libbox"
         const val SETUP_OPTIONS_CLASS = "io.nekohasekai.libbox.SetupOptions"
         const val COMMAND_CLIENT_CLASS = "io.nekohasekai.libbox.CommandClient"

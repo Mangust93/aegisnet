@@ -66,7 +66,6 @@ import net.aegisnet.app.runtime.ImportedProxyConfig
 import net.aegisnet.app.runtime.ProxyConfigType
 import net.aegisnet.app.runtime.RuntimeState
 import net.aegisnet.app.runtime.label
-import net.aegisnet.app.runtime.name
 import net.aegisnet.app.vpn.VpnState
 import net.aegisnet.app.vpn.name
 

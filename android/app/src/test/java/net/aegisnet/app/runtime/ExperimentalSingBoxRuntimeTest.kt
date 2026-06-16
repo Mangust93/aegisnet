@@ -1,6 +1,7 @@
 package net.aegisnet.app.runtime
 
 import java.net.URLClassLoader
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,7 +15,7 @@ class ExperimentalSingBoxRuntimeTest {
     val temporaryFolder = TemporaryFolder()
 
     @Test
-    fun rawSingBoxJsonFailsClearlyWhenSfaLibboxArtifactIsMissing() = runBlocking {
+    fun rawSingBoxJsonFailsClearlyWhenLibboxAarIsMissing() = runBlocking {
         val runtime = ExperimentalSingBoxRuntime(classLoader = URLClassLoader(emptyArray(), null))
 
         runtime.start(
@@ -35,9 +36,13 @@ class ExperimentalSingBoxRuntimeTest {
         )
 
         val failedState = runtime.state.value as RuntimeState.Failed
-        assertTrue(failedState.message.contains("SFA libbox runtime artifact missing"))
-        assertTrue(failedState.message.contains("android/local-libs/sfa-libbox/java"))
-        assertTrue(failedState.message.contains("android/local-libs/sfa-libbox/jniLibs"))
+        assertEquals("libbox.aar missing at android/local-libs/libbox/libbox.aar", failedState.message)
+        assertEquals(
+            "libbox.aar missing at android/local-libs/libbox/libbox.aar",
+            runtime.diagnostics.first { event ->
+                event.message == "libbox.aar missing at android/local-libs/libbox/libbox.aar"
+            }.message,
+        )
     }
 
     @Test

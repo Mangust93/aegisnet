@@ -4,8 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val localLibboxAar = rootProject.layout.projectDirectory.file("local-libs/libbox.aar").asFile
-val localSfaLibboxClassesJar = rootProject.layout.projectDirectory.file("local-libs/sfa-libbox/classes.jar").asFile
+val localLibboxAar = rootProject.layout.projectDirectory.file("local-libs/libbox/libbox.aar").asFile
 
 android {
     namespace = "net.aegisnet.app"
@@ -23,15 +22,6 @@ android {
         compose = true
     }
 
-    sourceSets {
-        getByName("main") {
-            if (!localSfaLibboxClassesJar.isFile) {
-                java.srcDir(rootProject.layout.projectDirectory.dir("local-libs/sfa-libbox/java"))
-            }
-            jniLibs.srcDir(rootProject.layout.projectDirectory.dir("local-libs/sfa-libbox/jniLibs"))
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -47,9 +37,6 @@ kotlin {
 dependencies {
     if (localLibboxAar.isFile) {
         implementation(files(localLibboxAar))
-    }
-    if (localSfaLibboxClassesJar.isFile) {
-        implementation(files(localSfaLibboxClassesJar))
     }
 
     implementation(platform("androidx.compose:compose-bom:2024.09.03"))

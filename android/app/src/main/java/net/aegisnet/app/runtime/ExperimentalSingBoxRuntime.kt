@@ -101,13 +101,8 @@ class ExperimentalSingBoxRuntime(
         if (missingRequirements.isNotEmpty()) {
             closeRejectedTunFd(config, tunFd)
             fail(
-                "SFA libbox runtime artifact missing: expected Java bindings at " +
-                    "${SfaLibboxRuntimeBridge.LOCAL_JAVA_PATH} and native libraries at " +
-                    "${SfaLibboxRuntimeBridge.LOCAL_JNI_LIBS_PATH}. Missing classes: " +
-                    missingRequirements.joinToString(", ") +
-                    ". Next setup step: extract the official SFA APK runtime into " +
-                    SfaLibboxRuntimeBridge.LOCAL_ARTIFACT_ROOT +
-                    " and rebuild.",
+                message = SfaLibboxRuntimeBridge.MISSING_AAR_MESSAGE,
+                diagnosticMessage = SfaLibboxRuntimeBridge.MISSING_AAR_MESSAGE,
             )
             return
         }
@@ -177,9 +172,12 @@ class ExperimentalSingBoxRuntime(
         }
     }
 
-    private suspend fun fail(message: String) {
+    private suspend fun fail(
+        message: String,
+        diagnosticMessage: String = "experimental_runtime_failed reason=$message",
+    ) {
         mutableState.value = RuntimeState.Failed(message)
-        emit(DiagnosticLevel.Error, "experimental_runtime_failed reason=$message")
+        emit(DiagnosticLevel.Error, diagnosticMessage)
     }
 
     private suspend fun emit(
