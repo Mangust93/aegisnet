@@ -44,7 +44,7 @@ The runtime must not report `Running` unless the bridge creates a command client
 
 Use one of these sources for `libbox.aar`:
 
-1. CI-built AAR from a pinned sing-box tag or commit.
+1. CI-built AAR from a pinned sing-box tag or commit using `docs/STAGE-4.4-LIBBOX-AAR-CI.md`.
 2. Trusted prebuilt AAR with a recorded `sha256` checksum.
 
 A checksum file may be committed later, but this stage does not require it.
