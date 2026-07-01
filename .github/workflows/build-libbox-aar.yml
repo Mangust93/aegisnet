@@ -56,6 +56,34 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "${GITHUB_PATH}"
           "$(go env GOPATH)/bin/gomobile" init
 
+      - name: Patch Android libbox MVP tags
+        working-directory: sing-box
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source_path = Path("cmd/internal/build_libbox/main.go")
+          source = source_path.read_text()
+          original = source
+
+          default_tags = 'sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_wireguard", "with_utls", "with_naive_outbound", "with_clash_api", "badlinkname", "tfogo_checklinkname0")'
+          mvp_tags = 'sharedTags = append(sharedTags, "with_gvisor", "with_quic", "with_utls", "badlinkname", "tfogo_checklinkname0")'
+          source = source.replace(default_tags, mvp_tags)
+
+          tailscale_tags = 'sharedTags = append(sharedTags, "with_tailscale", "ts_omit_logtail", "ts_omit_ssh", "ts_omit_drive", "ts_omit_taildrop", "ts_omit_webclient", "ts_omit_doctor", "ts_omit_capture", "ts_omit_kube", "ts_omit_aws", "ts_omit_synology", "ts_omit_bird")'
+          source = source.replace(
+              tailscale_tags,
+              "// AegisNet Android MVP does not require Tailscale.\n\t// " + tailscale_tags,
+          )
+
+          if source == original:
+              raise SystemExit("build_libbox Android tag patch did not match upstream source")
+
+          source_path.write_text(source)
+          PY
+          grep -n "sharedTags = append" cmd/internal/build_libbox/main.go
+
       - name: Build libbox.aar
         working-directory: sing-box
         run: |
